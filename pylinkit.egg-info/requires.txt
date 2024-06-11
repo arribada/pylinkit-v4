@@ -1,4 +1,0 @@
-service_identity
-pyasn1
-bleak
-kivy
