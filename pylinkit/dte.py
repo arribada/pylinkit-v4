@@ -66,7 +66,8 @@ class DTE():
                  'rtd': 4,
                  'cdt': 5,
                  'axl': 6,
-                 'pressure': 7 }
+                 'pressure': 7,
+                 'cam': 8 }
         resp = self._nus.send(self._encode_command('DUMPD', args=['{}'.format(log_d[log_type])]), multi_response=True)
         responses = self._decode_multi_response(resp)
         raw_data = b''
@@ -90,7 +91,8 @@ class DTE():
                  'rtd': 6,
                  'cdt': 7,
                  'axl': 8,
-                 'pressure': 9 }
+                 'pressure': 9,
+                 'cam': 10 }
         resp = self._nus.send(self._encode_command('ERASE', args=['{}'.format(log_d[log_type])]))
         self._decode_response(resp)
 
