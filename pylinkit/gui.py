@@ -1,34 +1,44 @@
 import os
 os.environ["KIVY_NO_ARGS"] = "1"
 
-import kivy
 import logging
 import threading
 import requests
 
-from kivy.app import App
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.recycleview import RecycleView
-from kivy.uix.label import Label
-from kivy.uix.button import Button
-from kivy.uix.popup import Popup
-from kivy.clock import Clock
-from kivy.lang import Builder
-from kivy.properties import BooleanProperty
-from kivy.uix.recycleview.views import RecycleDataViewBehavior
-from kivy.uix.recycleboxlayout import RecycleBoxLayout
-from kivy.uix.behaviors import FocusBehavior
-from kivy.uix.recycleview.layout import LayoutSelectionBehavior
-from kivy.uix.floatlayout import FloatLayout
-from kivy.factory import Factory
-from kivy.properties import ObjectProperty
-from kivy.uix.image import AsyncImage
-from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, extract_params_from_config_file
-from pylinkit import Tracker, Scanner
-
-
 logger = logging.getLogger(__name__)
+
+try:
+    import kivy
+    from kivy.app import App
+    from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.recycleview import RecycleView
+    from kivy.uix.label import Label
+    from kivy.uix.button import Button
+    from kivy.uix.popup import Popup
+    from kivy.clock import Clock
+    from kivy.lang import Builder
+    from kivy.properties import BooleanProperty
+    from kivy.uix.recycleview.views import RecycleDataViewBehavior
+    from kivy.uix.recycleboxlayout import RecycleBoxLayout
+    from kivy.uix.behaviors import FocusBehavior
+    from kivy.uix.recycleview.layout import LayoutSelectionBehavior
+    from kivy.uix.floatlayout import FloatLayout
+    from kivy.factory import Factory
+    from kivy.properties import ObjectProperty
+    from kivy.uix.image import AsyncImage
+    from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, extract_params_from_config_file
+    from pylinkit import Tracker, Scanner
+    KIVY_AVAILABLE = True
+except ImportError:
+    KIVY_AVAILABLE = False
+
+
+def run():
+    if not KIVY_AVAILABLE:
+        print("Error: Kivy is not installed. Install it with: pip install pylinkit[gui]")
+        raise SystemExit(1)
+    GUIApp().run()
 
 
 def write_csv(file, data):
@@ -657,6 +667,3 @@ class GUIApp(App):
 
     def build(self):
         return MainMenu(self)
-
-def run():
-    GUIApp().run()

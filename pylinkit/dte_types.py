@@ -226,7 +226,7 @@ class LEDMODE():
 
 
 class DEBUGMODE():
-    allowed = ['UART', 'BLE']
+    allowed = ['USB', 'BLE']
 
     @staticmethod
     def encode(value):
@@ -285,6 +285,29 @@ class GNSSDYNMODEL():
     def decode(value):
         return GNSSDYNMODEL.allowed[int(value)]
 
+
+class AXLPOWERMODE():
+    allowed = ['LOWPOWER', 'NORMAL']
+
+    @staticmethod
+    def encode(value):
+        return str(AXLPOWERMODE.allowed.index(value))
+
+    @staticmethod
+    def decode(value):
+        return AXLPOWERMODE.allowed[int(value)]
+
+
+class ACCRANGE():
+    allowed = ['2G', '4G', '8G', '16G']
+
+    @staticmethod
+    def encode(value):
+        return str(ACCRANGE.allowed.index(value))
+
+    @staticmethod
+    def decode(value):
+        return ACCRANGE.allowed[int(value)]
 
 
 class dotdict(dict):

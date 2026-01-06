@@ -22,9 +22,10 @@ setup(
         'service_identity',
         'pyasn1',
         'bleak',
-        'kivy',
     ],
-    extras_require={},
+    extras_require={
+        'gui': ['kivy'],
+    },
     entry_points={
         'console_scripts': [
             'pylinkit = pylinkit.__main__:main'

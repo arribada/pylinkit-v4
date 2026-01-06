@@ -6,7 +6,7 @@ from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, creat
 
 erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'axl', 'pressure', 'cam']
 dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'axl', 'pressure', 'cam']
-scalw_options = ['cdt', 'ph', 'rtd', 'mcp47x6']
+scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'mcp47x6']
 resetv_options = {'tx_counter': 1, 'rx_counter': 3, 'rx_time': 4}
 modulation_options = {'A2':0, 'A3': 1, 'A4': 2}
 
@@ -146,6 +146,16 @@ def main():
             --scalw cdt --command 3 --value xxxx ; to override CB polynomial coefficient
             --scalw cdt --command 4 --value xxxx ; to override CC polynomial coefficient
             --scalw cdt --command 5 ; to save all CDT calibration values to filesystem
+
+            axl::
+
+            --scalw axl --command 0 --value xxxx ; to override threshold value
+            --scalw axl --command 1 --value xxxx ; to override wakeup duration value
+            --scalw axl --command 2 --value xxxx ; to override wakeup gforce value
+            --scalw axl --command 3 --value xxxx ; to override power mode value
+            --scalw axl --command 4 --value xxxx ; to override x calibration value
+            --scalw axl --command 5 --value xxxx ; to override y calibration value
+            --scalw axl --command 6 --value xxxx ; to override z calibration value
 
             ph::
 
