@@ -155,8 +155,10 @@ def main():
             --scalw axl --command 3 ; auto-calibrate all axes (X=0, Y=0, Z=1g) - place device flat!
             --scalw axl --command 4 ; read and display calibrated X, Y, Z values (in g)
             --scalw axl --command 5 ; read and display current calibration coefficients (in g)
+            --scalw axl --command 6 ; save calibration to file
 
-            Note: wakeup threshold, duration, range and power mode are configured via PARMW:
+            Note: Calibration values are stored in a dedicated file (/calibration/AXL.cal).
+                  Wakeup threshold, duration, range and power mode are configured via PARMW:
                   AXL_SENSOR_WAKEUP_THRESH (AXP03), AXL_SENSOR_WAKEUP_SAMPLES (AXP04),
                   AXL_SENSOR_MEASUREMENT_RANGE (AXP08), AXL_SENSOR_POWER_MODE (AXP09)
 
