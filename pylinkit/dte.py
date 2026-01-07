@@ -58,7 +58,7 @@ class DTE():
         self._decode_response(resp)
 
     def dumpd(self, log_type='sensor'):
-        # BaseLogDType: INTERNAL=0, GNSS_SENSOR=1, ALS_SENSOR=2, PH_SENSOR=3, RTD_SENSOR=4, CDT_SENSOR=5, CAM_SENSOR=6, AXL_SENSOR=7, PRESSURE_SENSOR=8
+        # BaseLogDType: INTERNAL=0, GNSS_SENSOR=1, ALS_SENSOR=2, PH_SENSOR=3, RTD_SENSOR=4, CDT_SENSOR=5, CAM_SENSOR=6, AXL_SENSOR=7, PRESSURE_SENSOR=8, TSYS01_SENSOR=9
         log_d = {'system': 0,
                  'sensor': 1,
                  'gnss': 1,
@@ -68,7 +68,9 @@ class DTE():
                  'cdt': 5,
                  'cam': 6,
                  'axl': 7,
-                 'pressure': 8 }
+                 'pressure': 8,
+                 'tsys01': 9,
+                 'sea_temp': 9 }
         resp = self._nus.send(self._encode_command('DUMPD', args=['{}'.format(log_d[log_type])]), multi_response=True)
         responses = self._decode_multi_response(resp)
         raw_data = b''
@@ -83,7 +85,7 @@ class DTE():
         self._decode_response(resp)
 
     def erase(self, log_type):
-        # BaseEraseType: GNSS_SENSOR=1, SYSTEM=2, ALL=3, ALS_SENSOR=4, PH_SENSOR=5, RTD_SENSOR=6, CDT_SENSOR=7, CAM_SENSOR=8, AXL_SENSOR=9, PRESSURE_SENSOR=10
+        # BaseEraseType: GNSS_SENSOR=1, SYSTEM=2, ALL=3, ALS_SENSOR=4, PH_SENSOR=5, RTD_SENSOR=6, CDT_SENSOR=7, CAM_SENSOR=8, AXL_SENSOR=9, PRESSURE_SENSOR=10, TSYS01_SENSOR=11
         log_d = {'sensor': 1,
                  'gnss': 1,
                  'system': 2,
@@ -94,7 +96,9 @@ class DTE():
                  'cdt': 7,
                  'cam': 8,
                  'axl': 9,
-                 'pressure': 10 }
+                 'pressure': 10,
+                 'tsys01': 11,
+                 'sea_temp': 11 }
         resp = self._nus.send(self._encode_command('ERASE', args=['{}'.format(log_d[log_type])]))
         self._decode_response(resp)
 
