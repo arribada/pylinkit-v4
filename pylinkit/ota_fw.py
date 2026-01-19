@@ -1,7 +1,7 @@
 import struct, time
 from threading import Event
 
-OTA_CHAR_LENGTH = 20
+OTA_CHAR_LENGTH = 200
 OTA_BASE_ADDR_CHAR_UUID = '0000FE22-8E22-4541-9D4C-21EDAE82ED19'
 OTA_STATUS_CHAR_UUID = '0000FE23-8E22-4541-9D4C-21EDAE82ED19'
 OTA_RAW_DATA_UUID = '0000FE24-8E22-4541-9D4C-21EDAE82ED19'
@@ -25,7 +25,7 @@ class OTAFW():
         self._event.clear()
         self._device.char_write(OTA_BASE_ADDR_CHAR_UUID, struct.pack('<I', action))
         print('Waiting for device to ACK our START request')
-        is_set = self._event.wait(15.0)
+        is_set = self._event.wait(60.0)
         total_length = len(data)
         count = 0
         if is_set is False:
@@ -69,4 +69,4 @@ class OTAFW():
         elif int(data[2]) != 0xFF:
             self._status = int(data[2])
         self._event.set()
-        self._event.clear()
+        #self._event.clear()
