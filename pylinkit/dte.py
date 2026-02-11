@@ -58,7 +58,6 @@ class DTE():
         self._decode_response(resp)
 
     def dumpd(self, log_type='sensor'):
-        # BaseLogDType: INTERNAL=0, GNSS_SENSOR=1, ALS_SENSOR=2, PH_SENSOR=3, RTD_SENSOR=4, CDT_SENSOR=5, CAM_SENSOR=6, AXL_SENSOR=7, PRESSURE_SENSOR=8, TSYS01_SENSOR=9
         log_d = {'system': 0,
                  'sensor': 1,
                  'gnss': 1,
@@ -69,8 +68,8 @@ class DTE():
                  'cam': 6,
                  'axl': 7,
                  'pressure': 8,
-                 'tsys01': 9,
-                 'sea_temp': 9 }
+                 'thermistor': 9,
+                 'tsys01': 10 }
         resp = self._nus.send(self._encode_command('DUMPD', args=['{}'.format(log_d[log_type])]), multi_response=True)
         responses = self._decode_multi_response(resp)
         raw_data = b''
@@ -85,7 +84,6 @@ class DTE():
         self._decode_response(resp)
 
     def erase(self, log_type):
-        # BaseEraseType: GNSS_SENSOR=1, SYSTEM=2, ALL=3, ALS_SENSOR=4, PH_SENSOR=5, RTD_SENSOR=6, CDT_SENSOR=7, CAM_SENSOR=8, AXL_SENSOR=9, PRESSURE_SENSOR=10, TSYS01_SENSOR=11
         log_d = {'sensor': 1,
                  'gnss': 1,
                  'system': 2,
@@ -97,8 +95,8 @@ class DTE():
                  'cam': 8,
                  'axl': 9,
                  'pressure': 10,
-                 'tsys01': 11,
-                 'sea_temp': 11 }
+                 'thermistor': 11,
+                 'tsys01': 12 }
         resp = self._nus.send(self._encode_command('ERASE', args=['{}'.format(log_d[log_type])]))
         self._decode_response(resp)
 
@@ -121,13 +119,42 @@ class DTE():
                     'ph': 3,
                     'rtd': 4,
                     'cdt': 5,
-                    'mcp47x6': 6 }
+                    'mcp47x6': 6,
+                    'thermistor': 7 }
         resp = self._nus.send(self._encode_command('SCALW', args=[str(sensor_d[sensor]), str(step), str(value)]))
         self._decode_response(resp)
+
+    def pwron(self, component):
+        component_d = {'all': 0,
+                    'gnss': 1,
+                    'sensors': 2,
+                    'satellite': 3,
+                    'off': 4 }
+        resp = self._nus.send(self._encode_command('PWRON', args=['{}'.format(component_d[component])]))
+        self._decode_response(resp)
+
+    def scalr(self, sensor, step):
+        timeout: float = 10.0
+        sensor_d = {'axl': 0,
+                    'pressure': 1,
+                    'als': 2,
+                    'ph': 3,
+                    'rtd': 4,
+                    'cdt': 5,
+                    'mcp47x6': 6,
+                    'thermistor': 7 }
+        if sensor == 'axl':
+            timeout = 25.0
+        resp = self._nus.send(self._encode_command('SCALR', args=[str(sensor_d[sensor]), str(step)]), timeout=timeout)
+        return self._decode_response(resp)
 
     def argostx(self, mod, power, freq, size, tcxo):
         mod_d = {'A2': 0,
                  'A3': 1,
                  'A4': 2}
         resp = self._nus.send(self._encode_command('SATTX', args=[str(mod_d[mod]), str(power), str(freq), str(size), str(tcxo)]))
+        self._decode_response(resp)
+
+    def smdcd(self, id, addr, seckey, radioconf):
+        resp = self._nus.send(self._encode_command('SMDCD', args=[str(id), str(addr), str(seckey), str(radioconf)]))
         self._decode_response(resp)

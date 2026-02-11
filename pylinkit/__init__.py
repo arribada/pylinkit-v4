@@ -8,7 +8,7 @@ class Scanner():
         self._device = BLEDevice()
 
     def scan(self):
-        return [x for x in self._device.scan() if (x.name and ('Linkit' in x.name or 'Horizon' in x.name))]
+        return [x for x in self._device.scan() if (x.name and ('Linkit' in x.name or 'Horizon' in x.name or 'RSPB' in x.name))]
 
 
 class Tracker():
@@ -60,8 +60,24 @@ class Tracker():
     def scalw(self, sensor, step, value=0):
         self._dte.scalw(sensor, step, value)
 
+    def pwron(self, component):
+        self._dte.pwron(component)
+
+    def scalr(self, sensor, step):
+        return self._dte.scalr(sensor, step)
+
     def argostx(self, mod, power, freq, size, tcxo):
         self._dte.argostx(mod, power, freq, size, tcxo)
+
+    def smdcd(self, id, addr, seckey, radioconf):
+        self._dte.smdcd(id, addr, seckey, radioconf)
+
+    def smd_firmware_update(self, data, mode='uart', timeout=None):
+        """Send SMD module firmware update via BLE OTA.
+        mode: 'uart' (file_id=3) or 'spi' (file_id=4)
+        The nRF relays the DFU to the SMD module."""
+        file_id = 3 if mode == 'uart' else 4
+        self._otafw.send_update_file(file_id, data, timeout)
 
     def poll(self, key, repetitions=1):
         for i in range(repetitions):

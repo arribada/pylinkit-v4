@@ -109,7 +109,7 @@ class DTENUS():
         self._queued_data = ''
         device.subscribe(NUS_TX_CHAR_UUID, self._data_handler)
     
-    def send(self, data, timeout=6.0, multi_response=False):
+    def send(self, data, timeout=10.0, multi_response=False):
         self._protocol = DTENUSProtocol()
         self._queued_data = ''
         self._terminate = False

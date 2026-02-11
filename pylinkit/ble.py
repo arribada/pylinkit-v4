@@ -57,7 +57,7 @@ class BLEDevice(object):
         for all advertisements heard.
         """
         if not self._scanner:
-            self._scanner = BleakScanner(loop=self._bleak_loop)
+            self._scanner = BleakScanner()
 
         await self._scanner.start()
         await asyncio.sleep(interval)
@@ -84,7 +84,11 @@ class BLEDevice(object):
     async def _disconnect_async(self):
         """Disconnects from the remote peripheral. Does nothing if already disconnected."""
         if self._connection_client is not None:
-            await self._connection_client.disconnect()
+            try:
+                await self._connection_client.disconnect()
+            except Exception:
+                pass
+            self._connection_client = None
 
     def _run_bleak_loop(self):
         self._bleak_loop = asyncio.new_event_loop()
