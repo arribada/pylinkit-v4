@@ -1,29 +1,30 @@
-import struct, time
+"""OTA firmware update over BLE GATT characteristics."""
+
+import time
+import logging
 from threading import Event
 
-OTA_CHAR_LENGTH = 200
-OTA_BASE_ADDR_CHAR_UUID = '0000FE22-8E22-4541-9D4C-21EDAE82ED19'
-OTA_STATUS_CHAR_UUID = '0000FE23-8E22-4541-9D4C-21EDAE82ED19'
-OTA_RAW_DATA_UUID = '0000FE24-8E22-4541-9D4C-21EDAE82ED19'
+from .ota_base import OTAUpdater
 
-ACTION_START = 1
-ACTION_DONE = 7
-ACTION_ABORT = 8
+logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT = 20 * 60
+OTA_CHUNK_SIZE = 200
 
-class OTAFW():
-    def __init__(self, device):
-        self._device = device
+
+class BLEOTAUpdater(OTAUpdater):
+    """OTA firmware update over BLE using OTATransport interface."""
+
+    def __init__(self, transport):
+        """transport: a BLETransport instance (which implements OTATransport)."""
+        self._transport = transport
         self._event = Event()
         self._status = 0
-        device.subscribe(OTA_STATUS_CHAR_UUID, self._status_handler)
+        transport.subscribe_ota_status(self._status_handler)
 
-    def send_update_file(self, file_id, data, timeout):
+    def send_update_file(self, file_id, data, timeout=None):
         self._status = 0
-        action = ACTION_START | file_id << 8
         self._event.clear()
-        self._device.char_write(OTA_BASE_ADDR_CHAR_UUID, struct.pack('<I', action))
+        self._transport.ota_start(file_id)
         print('Waiting for device to ACK our START request')
         is_set = self._event.wait(60.0)
         total_length = len(data)
@@ -35,29 +36,29 @@ class OTAFW():
         else:
             print('Received NACK, aborting....')
             return
-        for x in [ data[0+i:OTA_CHAR_LENGTH+i] for i in range(0, len(data), OTA_CHAR_LENGTH) ]:
-            self._device.char_write(OTA_RAW_DATA_UUID, x)
-            count += len(x)
-            print(count, '/', total_length, end = '\r')
+        for i in range(0, total_length, OTA_CHUNK_SIZE):
+            chunk = data[i:i + OTA_CHUNK_SIZE]
+            self._transport.ota_send_chunk(chunk)
+            count += len(chunk)
+            print(count, '/', total_length, end='\r')
             if self._status:
                 print('Aborted remotely')
-                self._device.char_write(OTA_BASE_ADDR_CHAR_UUID, struct.pack('<I', ACTION_ABORT))
+                self._transport.ota_abort()
                 return
-        self._device.char_write(OTA_BASE_ADDR_CHAR_UUID, struct.pack('<I', ACTION_DONE))
+        self._transport.ota_finish()
         print('Data has been submitted...')
         print('Waiting for image transfer ACK...this may take some time...CTRL-C to abort')
-        is_set = self._event.wait(timeout or DEFAULT_TIMEOUT)
+        is_set = self._event.wait(timeout or self.DEFAULT_TIMEOUT)
         if is_set is False:
-            # Abort pending OTA update
-            self._device.char_write(OTA_BASE_ADDR_CHAR_UUID, struct.pack('<I', ACTION_ABORT))
+            self._transport.ota_abort()
             raise Exception('Time out waiting for STATUS handshake')
-        if (self._status == 0):
+        if self._status == 0:
             print('Image transfer ACK')
-            time.sleep(3)  # Allow time for procedure to clean up
+            time.sleep(3)
         else:
             print('Image transfer NACK')
 
-    def _status_handler(self, _, data):
+    def _status_handler(self, data):
         # File Upload Status is 3 bytes:
         # Byte 0 - File Reception: 0=>OK, 1=>Interrupted, FF=>Ignore
         # Byte 1 - File Integrity: 0=>OK, 1=>Not OK, FF=>Ignore
@@ -69,4 +70,3 @@ class OTAFW():
         elif int(data[2]) != 0xFF:
             self._status = int(data[2])
         self._event.set()
-        #self._event.clear()

@@ -2,8 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name='pylinkit',
-    version='3.4.1',
-    description='Python LinkIt BLE configuration tool',
+    version='4.0.0',
+    description='Python LinkIt BLE/USB configuration tool',
     author='Liam Wickins',
     author_email='liam@icoteq.com',
 
@@ -13,19 +13,18 @@ setup(
         'Topic :: Software Development :: Build Tools',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
     ],
     packages=find_packages(),
-    python_requires='>=3.0',
+    python_requires='>=3.8',
     install_requires=[
-        'service_identity',
-        'pyasn1',
         'bleak',
+        'pyserial',
     ],
-    extras_require={
-        'gui': ['kivy'],
-    },
     entry_points={
         'console_scripts': [
             'pylinkit = pylinkit.__main__:main'

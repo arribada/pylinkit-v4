@@ -1,8 +1,10 @@
 import logging
 import argparse
 import sys
-import pylinkit
-import pkg_resources
+import importlib.metadata
+
+from .transport import TransportType, create_transport
+from .transport.serial import SerialTransport
 from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, create_wrapped_file_with_crc32, create_smd_wrapped_file, stm32_crc32
 
 erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01']
@@ -10,51 +12,113 @@ dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pre
 scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'mcp47x6', 'thermistor']
 scalr_options = ['cdt', 'axl', 'thermistor']
 resetv_options = {'tx_counter': 1, 'rx_counter': 3, 'rx_time': 4}
-modulation_options = {'A2':0, 'A3': 1, 'A4': 2, 'VLDA4': 3, 'LDK':4, 'LDA2':5, 'LDA2L':6}
+modulation_options = {'A2': 0, 'A3': 1, 'A4': 2, 'VLDA4': 3, 'LDK': 4, 'LDA2': 5, 'LDA2L': 6}
 pwr_options = ['all', 'gnss', 'sensors', 'satellite', 'off']
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--fw', type=argparse.FileType('rb'), required=False, help='Firmware filename for FW OTA update')
-parser.add_argument('--timeout', type=float, required=False, default=None, help='BLE communications timeout')
-parser.add_argument('--erase', type=str, choices=erase_options, required=False, help='Erase log file')
-parser.add_argument('--device', type=str, required=False, help='xx:xx:xx:xx:xx:xx BLE device address')
-parser.add_argument('--parmr', type=argparse.FileType('w'), required=False, help='Filename to write [PARAM] configuration to')
-parser.add_argument('--poll', type=str, required=False, help='Poll a parameter value by key and use --value to denote repetitions')
-parser.add_argument('--rstvw', type=str, choices=resetv_options.keys(), required=False, help='Reset variable: tx_counter or rx_counter')
-parser.add_argument('--rstbw', action='store_true', required=False, help='Reset beacon')
-parser.add_argument('--factw', action='store_true', required=False, help='Factory reset (WARNING: erases all stored logs and configuration!)')
-parser.add_argument('--parmw', type=argparse.FileType('r'), required=False, help='Filename to read [PARAM] configuration from')
-parser.add_argument('--paspw', type=argparse.FileType('r'), required=False, help='Filename (JSON) to read pass predict configuration from')
-parser.add_argument('--scan', action='store_true', required=False, help='Scan for beacons')
+parser = argparse.ArgumentParser(
+    prog='pylinkit',
+    description='Linkit V4 tracker configuration tool (BLE/USB/UART)'
+)
+
+# === Transport selection ===
+transport_group = parser.add_argument_group('Transport')
+transport_group.add_argument('--transport', '-t', type=str, choices=['ble', 'usb', 'uart'], default='ble',
+                             help='Communication transport (default: ble)')
+transport_group.add_argument('--port', '-p', type=str, required=False,
+                             help='Serial port for USB/UART (e.g., COM3, /dev/ttyUSB0)')
+transport_group.add_argument('--baudrate', type=int, default=115200,
+                             help='Serial baudrate (default: 115200)')
+transport_group.add_argument('--device', type=str, required=False,
+                             help='BLE device address (xx:xx:xx:xx:xx:xx)')
+
+# === Discovery ===
+discovery_group = parser.add_argument_group('Discovery')
+discovery_group.add_argument('--scan', action='store_true', required=False, help='Scan for BLE beacons')
+discovery_group.add_argument('--list-ports', action='store_true', required=False, help='List available serial ports')
+
+# === Log viewer ===
+log_group = parser.add_argument_group('Log Viewer')
+log_group.add_argument('--log', '--trace', action='store_true', required=False,
+                       help='Start live log viewer (works over BLE, USB, or UART)')
+log_group.add_argument('--no-color', action='store_true', required=False,
+                       help='Disable colored log output')
+log_group.add_argument('--ble-trace', action='store_true', required=False,
+                       help='(Legacy) Read BLE trace output. Use --log --transport ble instead')
+
+# === Device commands ===
+cmd_group = parser.add_argument_group('Device Commands')
+cmd_group.add_argument('--fw', type=argparse.FileType('rb'), required=False,
+                       help='Firmware filename for FW OTA update')
+cmd_group.add_argument('--timeout', type=float, required=False, default=None,
+                       help='Communications timeout')
+cmd_group.add_argument('--erase', type=str, choices=erase_options, required=False,
+                       help='Erase log file')
+cmd_group.add_argument('--parmr', type=argparse.FileType('w'), required=False,
+                       help='Filename to write [PARAM] configuration to')
+cmd_group.add_argument('--poll', type=str, required=False,
+                       help='Poll a parameter value by key and use --value to denote repetitions')
+cmd_group.add_argument('--rstvw', type=str, choices=resetv_options.keys(), required=False,
+                       help='Reset variable: tx_counter or rx_counter')
+cmd_group.add_argument('--rstbw', action='store_true', required=False, help='Reset beacon')
+cmd_group.add_argument('--factw', action='store_true', required=False,
+                       help='Factory reset (WARNING: erases all stored logs and configuration!)')
+cmd_group.add_argument('--parmw', type=argparse.FileType('r'), required=False,
+                       help='Filename to read [PARAM] configuration from')
+cmd_group.add_argument('--paspw', type=argparse.FileType('r'), required=False,
+                       help='Filename (JSON) to read pass predict configuration from')
+cmd_group.add_argument('--dump_sensor', type=argparse.FileType('wb'), required=False,
+                       help='Dump sensor log file')
+cmd_group.add_argument('--dump_system', type=argparse.FileType('wb'), required=False,
+                       help='Dump system log file')
+cmd_group.add_argument('--dumpd', type=argparse.FileType('wb'), required=False,
+                       help='Dump the specified log file')
+cmd_group.add_argument('--dumpd_type', type=str, choices=dumpd_options, required=False,
+                       help='Specified log file')
+cmd_group.add_argument('--pwron', type=str, choices=pwr_options, required=False,
+                       help='Power on the device (GNSS, SENSORS, SATELLITE)')
+cmd_group.add_argument('--ano', type=argparse.FileType('rb'), required=False,
+                       help='GNSS AssistNow Offline filename')
+
+# === Calibration ===
+cal_group = parser.add_argument_group('Calibration')
+cal_group.add_argument('--scalw', type=str, choices=scalw_options, required=False,
+                       help='Run a calibration write command')
+cal_group.add_argument('--scalr', type=str, choices=scalr_options, required=False,
+                       help='Run a calibration read command')
+cal_group.add_argument('--command', type=int, required=False, help='Calibration command number')
+cal_group.add_argument('--value', type=float, default=0, required=False, help='Calibration command value')
+
+# === Argos/Satellite ===
+sat_group = parser.add_argument_group('Argos/Satellite')
+sat_group.add_argument('--argostx', action='store_true', required=False, help='Send argos TX packet')
+sat_group.add_argument('--argosmod', type=str, default='A2', required=False,
+                       help='Argos/Kineis modulation (A2, A3, A4, VLDA4, LDK, LDA2, LDA2L)')
+sat_group.add_argument('--argosfreq', type=float, default=401.65, required=False,
+                       help='Argos frequency in MHz')
+sat_group.add_argument('--argossize', type=int, default=15, required=False, help='Packet size in bytes')
+sat_group.add_argument('--argostcxo', type=int, default=5, required=False, help='TCXO warm-up in seconds')
+sat_group.add_argument('--argospower', type=int, default=350, required=False, help='TX power in mW')
+
+# === SMD ===
+smd_group = parser.add_argument_group('SMD Module')
+smd_group.add_argument('--smdcd', action='store_true', required=False,
+                       help='Send Credentials to SMD flash memory')
+smd_group.add_argument('--smdid', type=str, default='', required=False, help='SMD Decimal ID')
+smd_group.add_argument('--smdaddr', type=str, default='', required=False, help='SMD hexadecimal address')
+smd_group.add_argument('--smdseckey', type=str, default='', required=False, help='SMD Secret key')
+smd_group.add_argument('--smdradioconf', type=str, default='', required=False, help='SMD radio configuration')
+smd_group.add_argument('--smdfw', type=argparse.FileType('rb'), required=False,
+                       help='SMD module firmware binary for DFU update')
+smd_group.add_argument('--smdfw_mode', type=str, choices=['uart', 'spi'], default='uart', required=False,
+                       help='SMD DFU transport mode: uart or spi (default: uart)')
+smddfu_actions = {'enter': 0, 'exit': 1, 'status': 2, 'update': 3, 'info': 4, 'version': 5}
+smd_group.add_argument('--smddfu', type=str, choices=smddfu_actions.keys(), required=False,
+                       help='SMD DFU action (enter, exit, status, update, info, version)')
+
+# === Misc ===
 parser.add_argument('--debug', action='store_true', required=False, help='Turn on debug trace')
-parser.add_argument('--dump_sensor', type=argparse.FileType('wb'), required=False, help='Dump sensor log file')
-parser.add_argument('--dump_system', type=argparse.FileType('wb'), required=False, help='Dump system log file')
-parser.add_argument('--dumpd', type=argparse.FileType('wb'), required=False, help='Dump the specified log file')
-parser.add_argument('--dumpd_type', type=str, choices=dumpd_options, required=False, help='Specified log file')
-parser.add_argument('--gui', action='store_true', required=False, help='Launch in GUI mode')
-parser.add_argument('--argostx', action='store_true', required=False, help='Send argos TX packet')
-parser.add_argument('--argosmod', type=str, default='A2', required=False, help='Argos/Kineis modulation (A2, A3)')
-parser.add_argument('--argosfreq', type=float, default=401.65, required=False, help='Argos frequency in MHz')
-parser.add_argument('--argossize', type=int, default=15, required=False, help='Packet size in bytes')
-parser.add_argument('--argostcxo', type=int, default=5, required=False, help='TCXO warm-up in seconds')
-parser.add_argument('--argospower', type=int, default=350, required=False, help='TX power in mW')
-parser.add_argument('--smdcd', action='store_true', required=False, help='Send Credentials informations to SMD flash memory (ID, ADDR, and Secret Key, radio conf)')
-parser.add_argument('--smdid', type=str, default='', required=False, help='Write Decimal ID to SMD flash Decimal and internal conf')
-parser.add_argument('--smdaddr', type=str, default='', required=False, help='Write hexadecimal adress to SMD flash and internal conf')
-parser.add_argument('--smdseckey', type=str, default='', required=False, help='Write Secret key to SMD flash and internal conf')
-parser.add_argument('--smdradioconf', type=str, default='', required=False, help='Write radio configuration to SMD flash and internal conf')
-parser.add_argument('--scalw', type=str, choices=scalw_options, required=False, help='Run a calibration write command')
-parser.add_argument('--scalr', type=str, choices=scalr_options, required=False, help='Run a calibration read command')
-parser.add_argument('--command', type=int, required=False, help='Calibration command number')
-parser.add_argument('--value', type=float, default=0, required=False, help='Calibration command value')
-parser.add_argument('--ano', type=argparse.FileType('rb'), required=False, help='GNSS AssistNow Offline filename')
-parser.add_argument('--version', action='store_true', required=False, help='Show the version number and exit')
-parser.add_argument('--pwron', type=str, choices=pwr_options, required=False, help='Power on the device (GNSS, SENSORS, SATELLITE)')
-parser.add_argument('--ble-trace', action='store_true', required=False, help='Read BLE trace output from RSPB board')
-parser.add_argument('--smdfw', type=argparse.FileType('rb'), required=False, help='SMD module firmware binary for DFU update')
-parser.add_argument('--smdfw_mode', type=str, choices=['uart', 'spi'], default='uart', required=False, help='SMD DFU transport mode: uart or spi (default: uart)')
-args = parser.parse_args()
+parser.add_argument('--version', action='store_true', required=False, help='Show version and exit')
 
 
 def setup_logging(enabled, level):
@@ -70,19 +134,19 @@ def setup_logging(enabled, level):
             logging.getLogger().setLevel(logging.DEBUG)
 
 
-def gui_main():
-    from .gui import run
-    run()
-
-
 def main():
+    args = parser.parse_args()
+
     if not any(vars(args).values()):
         parser.print_help()
         sys.exit(2)
 
     if args.version:
-        version = pkg_resources.get_distribution("pylinkit").version
-        print(f"Version: {version}")
+        try:
+            version = importlib.metadata.version("pylinkit")
+        except importlib.metadata.PackageNotFoundError:
+            version = "4.0.0-dev"
+        print(f"pylinkit version {version}")
         sys.exit(0)
 
     if args.debug:
@@ -90,12 +154,109 @@ def main():
     else:
         setup_logging(True, 'info')
 
-    if args.gui:
-        gui_main()
+    # --- List serial ports ---
+    if args.list_ports:
+        ports = SerialTransport.list_ports()
+        if ports:
+            print("Available serial ports:")
+            for p in ports:
+                print(f"  {p.device} - {p.description}")
+        else:
+            print("No serial ports found")
+        sys.exit(0)
 
-    dev = None
-    if args.device:
-        dev = pylinkit.Tracker(args.device)
+    # --- Scan for BLE devices ---
+    if args.scan:
+        import pylinkit
+        scan_dev = pylinkit.Scanner()
+        result = scan_dev.scan()
+        for x in result:
+            print(x.address, x.name)
+        sys.exit(0)
+
+    # --- Determine transport type and address ---
+    transport_type = TransportType(args.transport)
+
+    # Handle legacy --ble-trace
+    if args.ble_trace:
+        args.log = True
+        transport_type = TransportType.BLE
+
+    # --- Log viewer mode ---
+    if args.log:
+        from .log_viewer import LogViewer
+
+        if transport_type == TransportType.BLE:
+            address = args.device
+            if not address:
+                # Auto-scan and select
+                import pylinkit
+                scan_dev = pylinkit.Scanner()
+                result = scan_dev.scan()
+                if not result:
+                    print("No BLE devices found")
+                    sys.exit(1)
+                print("\nFound devices:")
+                for i, d in enumerate(result):
+                    print(f"  {i + 1}. {d.address} - {d.name}")
+                choice = input("\nSelect device number: ")
+                try:
+                    address = result[int(choice) - 1].address
+                except (ValueError, IndexError):
+                    print("Invalid selection")
+                    sys.exit(1)
+
+            # Configure BLE trace mode if needed
+            if args.ble_trace and address:
+                response = input("\nIs the device configured with DEBUG_OUTPUT_MODE = BLE? (y/n): ")
+                if response.lower() != 'y':
+                    import time
+                    print(f"\nConfiguring device {address} for BLE trace output...")
+                    import pylinkit
+                    temp_dev = pylinkit.Tracker(address)
+                    temp_dev.sync()
+                    temp_dev.set({'DEBUG_OUTPUT_MODE': 'BLE'})
+                    print("Configuration updated: DEBUG_OUTPUT_MODE = BLE")
+                    del temp_dev
+                    print("Waiting for BLE connection to be released...")
+                    time.sleep(3)
+
+            transport = create_transport(transport_type)
+            transport.connect(address)
+            # Switch BLE transport to log mode
+            transport.set_log_mode(True)
+        else:
+            # USB or UART
+            if not args.port:
+                parser.error(f'--port is required for {args.transport} transport')
+            transport = create_transport(transport_type)
+            transport.connect(args.port, baudrate=args.baudrate)
+
+        viewer = LogViewer(transport, enable_colors=not args.no_color)
+        try:
+            viewer.start()
+        finally:
+            transport.disconnect()
+        sys.exit(0)
+
+    # --- All other commands require a connected device ---
+    address = None
+    if transport_type == TransportType.BLE:
+        address = args.device
+        if not address:
+            parser.error('--device is required for BLE transport')
+    else:
+        address = args.port
+        if not address:
+            parser.error(f'--port is required for {args.transport} transport')
+
+    import pylinkit
+    dev = pylinkit.Tracker(
+        address,
+        transport_type=transport_type,
+        timeout=args.timeout or 5.0,
+        baudrate=args.baudrate
+    )
 
     if args.parmr:
         dev.sync()
@@ -135,7 +296,7 @@ def main():
         dev.erase(args.erase)
 
     if args.fw:
-        if (args.fw.name.endswith('.zip')):
+        if args.fw.name.endswith('.zip'):
             dev.firmware_update(extract_firmware_file_from_dfu(args.fw), 0, args.timeout)
         else:
             dev.firmware_update(args.fw.read(), 0, args.timeout)
@@ -248,6 +409,16 @@ def main():
     if args.smdcd:
         dev.smdcd(args.smdid, args.smdaddr, args.smdseckey, args.smdradioconf)
 
+    if args.smddfu:
+        result = dev.smddfu(smddfu_actions[args.smddfu])
+        if result['status'] == 0:
+            print(f"SMD DFU [{args.smddfu.upper()}] OK")
+            print(f"  Mode: {'Bootloader (DFU)' if result['dfu_mode'] else 'Application'}")
+            if result['info']:
+                print(f"  Info: {result['info']}")
+        else:
+            print(f"SMD DFU [{args.smddfu.upper()}] ERROR (status={result['status']})")
+
     if args.smdfw:
         fw_data = args.smdfw.read()
         fw_crc = stm32_crc32(fw_data)
@@ -257,46 +428,6 @@ def main():
         print(f"  file_id={'3 (UART)' if args.smdfw_mode == 'uart' else '4 (SPI)'}")
         wrapped = create_smd_wrapped_file(fw_data)
         dev.smd_firmware_update(wrapped, mode=args.smdfw_mode, timeout=args.timeout)
-
-    if args.scan:
-        scan_dev = pylinkit.Scanner()
-        result = scan_dev.scan()
-        for x in result:
-            print(x.address, x.name)
-
-    if args.ble_trace:
-        import subprocess
-        import os
-
-        def configure_ble_mode(address):
-            import time
-            print(f"\nConfiguring device {address} for BLE trace output...")
-            temp_dev = pylinkit.Tracker(address)
-            temp_dev.sync()
-            temp_dev.set({'DEBUG_OUTPUT_MODE': 'BLE'})
-            print("Configuration updated: DEBUG_OUTPUT_MODE = BLE")
-            del temp_dev
-            print("Waiting for BLE connection to be released...")
-            time.sleep(3)
-
-        device_address = args.device
-
-        if device_address:
-            response = input("\nIs the device configured with DEBUG_OUTPUT_MODE = BLE? (y/n): ")
-            if response.lower() != 'y':
-                configure_ble_mode(device_address)
-
-        ble_trace_script = os.path.join(os.path.dirname(__file__), 'ble_trace.py')
-
-        try:
-            cmd = [sys.executable, ble_trace_script]
-            if device_address:
-                cmd.append(device_address)
-            process = subprocess.run(cmd)
-            sys.exit(process.returncode)
-        except KeyboardInterrupt:
-            print("\n\n=== Trace listener stopped ===")
-            sys.exit(0)
 
 
 if __name__ == "__main__":

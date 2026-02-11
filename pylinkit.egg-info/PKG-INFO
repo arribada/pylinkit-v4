@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
 Name: pylinkit
-Version: 3.4.1
-Summary: Python LinkIt BLE configuration tool
+Version: 4.0.0
+Summary: Python LinkIt BLE/USB configuration tool
 Author: Liam Wickins
 Author-email: liam@icoteq.com
 Classifier: Development Status :: 3 - Alpha
@@ -9,18 +9,17 @@ Classifier: Intended Audience :: Developers
 Classifier: Topic :: Software Development :: Build Tools
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Programming Language :: Python :: 3
-Classifier: Programming Language :: Python :: 3.7
 Classifier: Programming Language :: Python :: 3.8
-Requires-Python: >=3.0
-Requires-Dist: service_identity
-Requires-Dist: pyasn1
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Requires-Python: >=3.8
 Requires-Dist: bleak
-Provides-Extra: gui
-Requires-Dist: kivy; extra == "gui"
+Requires-Dist: pyserial
 Dynamic: author
 Dynamic: author-email
 Dynamic: classifier
-Dynamic: provides-extra
 Dynamic: requires-dist
 Dynamic: requires-python
 Dynamic: summary

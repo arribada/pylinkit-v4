@@ -1,28 +1,42 @@
-from .ble import BLEDevice
-from .dte import DTE
-from .ota_fw import OTAFW
+from .transport import TransportType, create_transport
+from .transport.ble import BLETransport
+from .protocol.dte_commands import DTECommands
+from .ota.ota_ble import BLEOTAUpdater
 
 
-class Scanner():
-    def __init__(self):
-        self._device = BLEDevice()
+class Scanner:
+    """Scan for Linkit/Horizon/RSPB devices over BLE."""
 
     def scan(self):
-        return [x for x in self._device.scan() if (x.name and ('Linkit' in x.name or 'Horizon' in x.name or 'RSPB' in x.name))]
+        return BLETransport.scan()
 
 
-class Tracker():
-    def __init__(self, address):
-        self._device = BLEDevice()
-        self._device.connect(address, 5)
-        self._dte = DTE(self._device)
-        self._otafw = OTAFW(self._device)
+class Tracker:
+    """Main interface to a Linkit tracker device.
+
+    Supports BLE and USB serial transports.
+    """
+
+    def __init__(self, address, transport_type=TransportType.BLE, timeout=5.0, **transport_kwargs):
+        self._transport = create_transport(transport_type, **transport_kwargs)
+        self._transport.connect(address, timeout=timeout)
+        self._dte = DTECommands(self._transport)
+
+        # Create appropriate OTA updater based on transport
+        if transport_type == TransportType.BLE:
+            self._ota = BLEOTAUpdater(self._transport)
+        elif transport_type == TransportType.USB:
+            from .ota.ota_serial import SerialOTAUpdater
+            self._ota = SerialOTAUpdater(self._transport)
+        else:
+            self._ota = None  # UART (read-only) has no OTA
+
         self._map = {}
 
     def sync(self):
         a = self._dte.parmr()
         b = self._dte.statr()
-        self._map = { **a, **b }
+        self._map = {**a, **b}
 
     def set(self, param_values):
         self._dte.parmw(param_values=param_values)
@@ -34,7 +48,17 @@ class Tracker():
         return self._map.keys()
 
     def firmware_update(self, data, file_id=0, timeout=None):
-        self._otafw.send_update_file(file_id, data, timeout)
+        if self._ota is None:
+            raise RuntimeError("OTA not available on this transport (read-only)")
+        self._ota.send_update_file(file_id, data, timeout)
+
+    def smd_firmware_update(self, data, mode='uart', timeout=None):
+        """Send SMD module firmware update.
+        mode: 'uart' (file_id=3) or 'spi' (file_id=4)"""
+        file_id = 3 if mode == 'uart' else 4
+        if self._ota is None:
+            raise RuntimeError("OTA not available on this transport (read-only)")
+        self._ota.send_update_file(file_id, data, timeout)
 
     def paspw(self, json_file_data):
         self._dte.paspw(json_file_data)
@@ -60,11 +84,11 @@ class Tracker():
     def scalw(self, sensor, step, value=0):
         self._dte.scalw(sensor, step, value)
 
-    def pwron(self, component):
-        self._dte.pwron(component)
-
     def scalr(self, sensor, step):
         return self._dte.scalr(sensor, step)
+
+    def pwron(self, component):
+        self._dte.pwron(component)
 
     def argostx(self, mod, power, freq, size, tcxo):
         self._dte.argostx(mod, power, freq, size, tcxo)
@@ -72,12 +96,9 @@ class Tracker():
     def smdcd(self, id, addr, seckey, radioconf):
         self._dte.smdcd(id, addr, seckey, radioconf)
 
-    def smd_firmware_update(self, data, mode='uart', timeout=None):
-        """Send SMD module firmware update via BLE OTA.
-        mode: 'uart' (file_id=3) or 'spi' (file_id=4)
-        The nRF relays the DFU to the SMD module."""
-        file_id = 3 if mode == 'uart' else 4
-        self._otafw.send_update_file(file_id, data, timeout)
+    def smddfu(self, action):
+        """Send SMDDFU command. Returns dict with status, dfu_mode, progress, info."""
+        return self._dte.smddfu(action)
 
     def poll(self, key, repetitions=1):
         for i in range(repetitions):

@@ -1,6 +1,2 @@
-service_identity
-pyasn1
 bleak
-
-[gui]
-kivy
+pyserial
