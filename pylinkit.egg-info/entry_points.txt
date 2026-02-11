@@ -1,0 +1,2 @@
+[console_scripts]
+pylinkit = pylinkit.__main__:main
