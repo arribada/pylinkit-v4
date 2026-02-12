@@ -89,6 +89,14 @@ cal_group.add_argument('--scalr', type=str, choices=scalr_options, required=Fals
 cal_group.add_argument('--command', type=int, required=False, help='Calibration command number')
 cal_group.add_argument('--value', type=float, default=0, required=False, help='Calibration command value')
 
+# === Sensor Read ===
+sensr_options = {'all': 0x07, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04}
+sensor_group = parser.add_argument_group('Sensor Read')
+sensor_group.add_argument('--sensr', type=str, choices=sensr_options.keys(), required=False,
+                          help='Read sensors (all, battery, pressure, gnss)')
+sensor_group.add_argument('--sensr_timeout', type=int, default=60, required=False,
+                          help='GNSS timeout in seconds (default: 60)')
+
 # === Argos/Satellite ===
 sat_group = parser.add_argument_group('Argos/Satellite')
 sat_group.add_argument('--argostx', action='store_true', required=False, help='Send argos TX packet')
@@ -402,6 +410,24 @@ def main():
             """)
             return
         print(dev.scalr(args.scalr, args.command))
+
+    if args.sensr:
+        r = dev.sensr(sensr_options[args.sensr], args.sensr_timeout)
+        if r['status'] == 0:
+            mask = sensr_options[args.sensr]
+            if mask & 0x01:
+                print(f"Battery: {r['battery_mv']}mV ({r['battery_soc']}%)")
+            if mask & 0x02:
+                print(f"Pressure: {r['pressure_mbar']:.1f} mbar")
+                print(f"Temperature: {r['temperature_c']:.1f} C")
+            if mask & 0x04:
+                if r['hdop'] < 99.0:
+                    print(f"GNSS: {r['latitude']:.6f}, {r['longitude']:.6f}")
+                    print(f"HDOP: {r['hdop']:.1f}, Satellites: {r['num_satellites']}")
+                else:
+                    print(f"GNSS: No valid fix (satellites: {r['num_satellites']})")
+        else:
+            print(f"SENSR error (status={r['status']})")
 
     if args.argostx:
         dev.argostx(args.argosmod, args.argospower, args.argosfreq, args.argossize, args.argostcxo)

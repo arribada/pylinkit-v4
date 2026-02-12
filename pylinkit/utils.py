@@ -44,9 +44,8 @@ def create_wrapped_file_with_crc32(bin_data):
 
 
 def create_smd_wrapped_file(bin_data):
-    """Wrap SMD firmware binary with size + STM32 CRC32 header.
-    The nRF uses this header to know the firmware size and verify
-    integrity after the DFU transfer to the SMD module."""
+    """Wrap SMD firmware with [size:4B BE][stm32_crc32:4B BE] header.
+    Same format as standard OTA but using STM32 CRC32 (MPEG-2) instead of ISO CRC32."""
     crc = stm32_crc32(bin_data)
     return struct.pack('>II', len(bin_data), crc) + bin_data
 

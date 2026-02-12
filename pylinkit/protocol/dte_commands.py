@@ -5,7 +5,7 @@ from threading import Event
 from .dte_protocol import DTEProtocol, DTEProtocolError
 from .dte_params import DTEParamMap
 from .dte_types import BASE64, PASPW
-from ..enums import BaseLogDType, BaseEraseType, BaseSensorCalType, ComponentPower, ArgosModulation
+from ..enums import BaseLogDType, BaseEraseType, BaseSensorCalType, ComponentPower, ArgosModulation, SensrMask, DTEError
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,13 @@ class DTECommands:
             return success.group('payload')
         fail = re.match(fail_regexp, resp)
         if fail:
-            raise Exception('{} - error {}'.format(fail.group('cmd'), fail.group('error')))
+            cmd = fail.group('cmd')
+            error_code = int(fail.group('error'))
+            try:
+                err = DTEError(error_code)
+                raise Exception(f'{cmd} - error {error_code}: {err.message}')
+            except ValueError:
+                raise Exception(f'{cmd} - error {error_code}: Unknown error')
         raise Exception('Bad response - {}'.format(resp))
 
     def _decode_multi_response(self, resp):
@@ -171,6 +177,28 @@ class DTECommands:
             self._encode_command('SMDCD', args=[str(id), str(addr), str(seckey), str(radioconf)])
         )
         self._decode_response(resp)
+
+    def sensr(self, mask=SensrMask.ALL, timeout=60):
+        """Read sensors. mask: bitmask (1=battery, 2=pressure, 4=gnss, 7=all).
+        Returns dict with battery_mv, battery_soc, pressure_mbar, temperature_c,
+        latitude, longitude, hdop, num_satellites."""
+        resp = self._send_and_receive(
+            self._encode_command('SENSR', args=[str(mask), str(timeout)]),
+            timeout=float(timeout) + 5.0
+        )
+        payload = self._decode_response(resp)
+        parts = payload.split(',')
+        return {
+            'status': int(parts[0]),
+            'battery_mv': int(parts[1]),
+            'battery_soc': int(parts[2]),
+            'pressure_mbar': float(parts[3]),
+            'temperature_c': float(parts[4]),
+            'latitude': float(parts[5]),
+            'longitude': float(parts[6]),
+            'hdop': float(parts[7]),
+            'num_satellites': int(parts[8]),
+        }
 
     def smddfu(self, action):
         """Send SMDDFU command.
