@@ -90,7 +90,8 @@ class SensrMask(IntEnum):
     BATTERY = 0x01
     PRESSURE = 0x02
     GNSS = 0x04
-    ALL = 0x07
+    ACCEL = 0x08
+    ALL = 0x0F
 
 
 class DTEError(IntEnum):

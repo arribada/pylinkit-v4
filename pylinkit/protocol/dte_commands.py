@@ -89,7 +89,10 @@ class DTECommands:
         m = {}
         for x in payload.strip().split(','):
             key, value = x.split('=')
-            m[DTEParamMap.key_to_param(key)] = DTEParamMap.decode(key, value)
+            try:
+                m[DTEParamMap.key_to_param(key)] = DTEParamMap.decode(key, value)
+            except Exception:
+                continue
         return m
 
     def parmr(self, params=[]):
@@ -188,17 +191,23 @@ class DTECommands:
         )
         payload = self._decode_response(resp)
         parts = payload.split(',')
-        return {
-            'status': int(parts[0]),
-            'battery_mv': int(parts[1]),
-            'battery_soc': int(parts[2]),
-            'pressure_mbar': float(parts[3]),
-            'temperature_c': float(parts[4]),
-            'latitude': float(parts[5]),
-            'longitude': float(parts[6]),
-            'hdop': float(parts[7]),
-            'num_satellites': int(parts[8]),
+        result = {
+            'battery_mv': int(parts[0]),
+            'battery_soc': int(parts[1]),
+            'pressure_mbar': float(parts[2]),
+            'temperature_c': float(parts[3]),
+            'latitude': float(parts[4]),
+            'longitude': float(parts[5]),
+            'hdop': float(parts[6]),
+            'num_satellites': int(parts[7]),
         }
+        if len(parts) > 8:
+            result['accel_x'] = float(parts[8])
+            result['accel_y'] = float(parts[9])
+            result['accel_z'] = float(parts[10])
+            result['accel_temp'] = float(parts[11])
+            result['activity'] = int(parts[12])
+        return result
 
     def smddfu(self, action):
         """Send SMDDFU command.
@@ -215,3 +224,11 @@ class DTECommands:
             'progress': int(parts[2]),
             'info': parts[3] if len(parts) > 3 else ''
         }
+
+    def smdtst(self):
+        """Send SMDTST command. Tests 14 SPI A+ commands on the SMD module."""
+        resp = self._send_and_receive(
+            self._encode_command('SMDTST'),
+            timeout=30.0
+        )
+        return self._decode_response(resp)

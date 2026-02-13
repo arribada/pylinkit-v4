@@ -90,10 +90,10 @@ cal_group.add_argument('--command', type=int, required=False, help='Calibration 
 cal_group.add_argument('--value', type=float, default=0, required=False, help='Calibration command value')
 
 # === Sensor Read ===
-sensr_options = {'all': 0x07, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04}
+sensr_options = {'all': 0x0F, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04, 'accel': 0x08}
 sensor_group = parser.add_argument_group('Sensor Read')
 sensor_group.add_argument('--sensr', type=str, choices=sensr_options.keys(), required=False,
-                          help='Read sensors (all, battery, pressure, gnss)')
+                          help='Read sensors (all, battery, pressure, gnss, accel)')
 sensor_group.add_argument('--sensr_timeout', type=int, default=60, required=False,
                           help='GNSS timeout in seconds (default: 60)')
 
@@ -123,7 +123,8 @@ smd_group.add_argument('--smdfw_mode', type=str, choices=['uart', 'spi'], defaul
 smddfu_actions = {'enter': 0, 'exit': 1, 'status': 2, 'update': 3, 'info': 4, 'version': 5}
 smd_group.add_argument('--smddfu', type=str, choices=smddfu_actions.keys(), required=False,
                        help='SMD DFU action (enter, exit, status, update, info, version)')
-
+smd_group.add_argument('--smdtst', action='store_true', required=False,
+                       help='Run SMD SPI test')
 # === Misc ===
 parser.add_argument('--debug', action='store_true', required=False, help='Turn on debug trace')
 parser.add_argument('--version', action='store_true', required=False, help='Show version and exit')
@@ -413,21 +414,22 @@ def main():
 
     if args.sensr:
         r = dev.sensr(sensr_options[args.sensr], args.sensr_timeout)
-        if r['status'] == 0:
-            mask = sensr_options[args.sensr]
-            if mask & 0x01:
-                print(f"Battery: {r['battery_mv']}mV ({r['battery_soc']}%)")
-            if mask & 0x02:
-                print(f"Pressure: {r['pressure_mbar']:.1f} mbar")
-                print(f"Temperature: {r['temperature_c']:.1f} C")
-            if mask & 0x04:
-                if r['hdop'] < 99.0:
-                    print(f"GNSS: {r['latitude']:.6f}, {r['longitude']:.6f}")
-                    print(f"HDOP: {r['hdop']:.1f}, Satellites: {r['num_satellites']}")
-                else:
-                    print(f"GNSS: No valid fix (satellites: {r['num_satellites']})")
-        else:
-            print(f"SENSR error (status={r['status']})")
+        mask = sensr_options[args.sensr]
+        if mask & 0x01:
+            print(f"Battery: {r['battery_mv']}mV ({r['battery_soc']}%)")
+        if mask & 0x02:
+            print(f"Pressure: {r['pressure_mbar']:.1f} mbar")
+            print(f"Temperature: {r['temperature_c']:.1f} C")
+        if mask & 0x04:
+            if r['hdop'] < 99.0:
+                print(f"GNSS: {r['latitude']:.6f}, {r['longitude']:.6f}")
+                print(f"HDOP: {r['hdop']:.1f}, Satellites: {r['num_satellites']}")
+            else:
+                print(f"GNSS: No valid fix (satellites: {r['num_satellites']})")
+        if mask & 0x08 and 'accel_x' in r:
+            print(f"Accel: X={r['accel_x']:.3f}g Y={r['accel_y']:.3f}g Z={r['accel_z']:.3f}g")
+            print(f"Accel Temp: {r['accel_temp']:.1f} C")
+            print(f"Activity: {r['activity']}")
 
     if args.argostx:
         dev.argostx(args.argosmod, args.argospower, args.argosfreq, args.argossize, args.argostcxo)
@@ -436,14 +438,21 @@ def main():
         dev.smdcd(args.smdid, args.smdaddr, args.smdseckey, args.smdradioconf)
 
     if args.smddfu:
-        result = dev.smddfu(smddfu_actions[args.smddfu])
-        if result['status'] == 0:
+        try:
+            result = dev.smddfu(smddfu_actions[args.smddfu])
             print(f"SMD DFU [{args.smddfu.upper()}] OK")
             print(f"  Mode: {'Bootloader (DFU)' if result['dfu_mode'] else 'Application'}")
             if result['info']:
                 print(f"  Info: {result['info']}")
-        else:
-            print(f"SMD DFU [{args.smddfu.upper()}] ERROR (status={result['status']})")
+        except Exception as e:
+            print(f"SMD DFU [{args.smddfu.upper()}] FAILED: {e}")
+
+    if args.smdtst:
+        try:
+            result = dev.smdtst()
+            print(f"SMD SPI TEST: {result}")
+        except Exception as e:
+            print(f"SMD SPI TEST FAILED: {e}")
 
     if args.smdfw:
         fw_data = args.smdfw.read()

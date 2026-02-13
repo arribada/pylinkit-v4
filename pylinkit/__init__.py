@@ -96,13 +96,17 @@ class Tracker:
     def smdcd(self, id, addr, seckey, radioconf):
         self._dte.smdcd(id, addr, seckey, radioconf)
 
-    def sensr(self, mask=0x07, timeout=60):
+    def sensr(self, mask=0x0F, timeout=60):
         """Read sensors. Returns dict with battery, pressure, temperature, GNSS."""
         return self._dte.sensr(mask, timeout)
 
     def smddfu(self, action):
         """Send SMDDFU command. Returns dict with status, dfu_mode, progress, info."""
         return self._dte.smddfu(action)
+
+    def smdtst(self):
+        """Run SMD SPI test (14 A+ commands). Returns test summary string."""
+        return self._dte.smdtst()
 
     def poll(self, key, repetitions=1):
         for i in range(repetitions):
