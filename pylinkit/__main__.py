@@ -12,7 +12,7 @@ dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pre
 scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'mcp47x6', 'thermistor']
 scalr_options = ['cdt', 'axl', 'thermistor']
 resetv_options = {'tx_counter': 1, 'rx_counter': 3, 'rx_time': 4}
-modulation_options = {'A2': 0, 'A3': 1, 'A4': 2, 'VLDA4': 3, 'LDK': 4, 'LDA2': 5, 'LDA2L': 6}
+modulation_options = {'LDK': 0, 'LDA2': 1, 'VLDA4': 2}
 pwr_options = ['all', 'gnss', 'sensors', 'satellite', 'off']
 
 
@@ -100,8 +100,8 @@ sensor_group.add_argument('--sensr_timeout', type=int, default=60, required=Fals
 # === Argos/Satellite ===
 sat_group = parser.add_argument_group('Argos/Satellite')
 sat_group.add_argument('--argostx', action='store_true', required=False, help='Send argos TX packet')
-sat_group.add_argument('--argosmod', type=str, default='A2', required=False,
-                       help='Argos/Kineis modulation (A2, A3, A4, VLDA4, LDK, LDA2, LDA2L)')
+sat_group.add_argument('--argosmod', type=str, default='LDA2', required=False,
+                       help='Kineis modulation (LDK, LDA2, VLDA4)')
 sat_group.add_argument('--argosfreq', type=float, default=401.65, required=False,
                        help='Argos frequency in MHz')
 sat_group.add_argument('--argossize', type=int, default=15, required=False, help='Packet size in bytes')
@@ -127,7 +127,7 @@ smd_group.add_argument('--smdtst', action='store_true', required=False,
                        help='Run SMD SPI test')
 # === Misc ===
 parser.add_argument('--debug', action='store_true', required=False, help='Turn on debug trace')
-parser.add_argument('--version', action='store_true', required=False, help='Show version and exit')
+parser.add_argument('--version', action='version', version='%(prog)s ' + importlib.metadata.version('pylinkit'))
 
 
 def setup_logging(enabled, level):
@@ -149,14 +149,6 @@ def main():
     if not any(vars(args).values()):
         parser.print_help()
         sys.exit(2)
-
-    if args.version:
-        try:
-            version = importlib.metadata.version("pylinkit")
-        except importlib.metadata.PackageNotFoundError:
-            version = "4.0.0-dev"
-        print(f"pylinkit version {version}")
-        sys.exit(0)
 
     if args.debug:
         setup_logging(True, 'debug')
@@ -463,6 +455,11 @@ def main():
         print(f"  file_id={'3 (UART)' if args.smdfw_mode == 'uart' else '4 (SPI)'}")
         wrapped = create_smd_wrapped_file(fw_data)
         dev.smd_firmware_update(wrapped, mode=args.smdfw_mode, timeout=args.timeout)
+        if args.smdfw_mode == 'spi':
+            import time
+            print("SPI DFU: waiting 60s for device to complete flashing...")
+            time.sleep(60)
+            print("SPI DFU: done waiting.")
 
 
 if __name__ == "__main__":

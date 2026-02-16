@@ -171,13 +171,15 @@ class DTECommands:
     def argostx(self, mod, power, freq, size, tcxo):
         mod_value = ArgosModulation[mod.upper()].value
         resp = self._send_and_receive(
-            self._encode_command('SATTX', args=[str(mod_value), str(power), str(freq), str(size), str(tcxo)])
+            self._encode_command('SATTX', args=[str(mod_value), str(power), str(freq), str(size), str(tcxo)]),
+            timeout=30.0
         )
         self._decode_response(resp)
 
     def smdcd(self, id, addr, seckey, radioconf):
         resp = self._send_and_receive(
-            self._encode_command('SMDCD', args=[str(id), str(addr), str(seckey), str(radioconf)])
+            self._encode_command('SMDCD', args=[str(id), str(addr), str(seckey), str(radioconf)]),
+            timeout=30.0
         )
         self._decode_response(resp)
 

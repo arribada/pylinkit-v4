@@ -68,14 +68,15 @@ class ComponentPower(IntEnum):
 
 
 class ArgosModulation(IntEnum):
-    """Argos/Kineis modulation types."""
-    A2 = 0
-    A3 = 1
-    A4 = 2
-    VLDA4 = 3
-    LDK = 4
-    LDA2 = 5
-    LDA2L = 6
+    """Kineis modulation types. Matches firmware KineisModulation/BaseArgosModulation."""
+    LDK = 0
+    LDA2 = 1
+    VLDA4 = 2
+
+
+# SMD hardware register (byte 9 of radioconf) has LDA2 and LDK swapped
+KINEIS_TO_SMD_MOD = {0: 1, 1: 0, 2: 2}  # LDK(0)->1, LDA2(1)->0, VLDA4(2)->2
+SMD_TO_KINEIS_MOD = {0: 1, 1: 0, 2: 2}  # LDA2(0)->1, LDK(1)->0, VLDA4(2)->2
 
 
 class ResetVariable(IntEnum):
