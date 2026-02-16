@@ -178,7 +178,7 @@ class ARGOSMODEZONE():
 
 
 class ARGOSMODULATION():
-    allowed = ['A2', 'A3', 'A4']
+    allowed = ['LDK', 'LDA2', 'VLDA4']
 
     @staticmethod
     def encode(value):
