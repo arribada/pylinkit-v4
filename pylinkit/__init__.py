@@ -79,7 +79,7 @@ class Tracker:
         self._dte.rstbw()
 
     def deplw(self):
-        self._dte.rstbw()
+        self._dte.deplw()
 
     def scalw(self, sensor, step, value=0):
         self._dte.scalw(sensor, step, value)
@@ -107,6 +107,11 @@ class Tracker:
     def smdtst(self):
         """Run SMD SPI test (14 A+ commands). Returns test summary string."""
         return self._dte.smdtst()
+
+    def wait_smd_dfu_result(self, timeout=180.0):
+        """Wait for async SMDDFU notification after SPI firmware transfer.
+        Returns dict with status, dfu_mode, progress, info."""
+        return self._dte.wait_smd_dfu_result(timeout)
 
     def poll(self, key, repetitions=1):
         for i in range(repetitions):

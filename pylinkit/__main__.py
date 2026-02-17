@@ -456,10 +456,15 @@ def main():
         wrapped = create_smd_wrapped_file(fw_data)
         dev.smd_firmware_update(wrapped, mode=args.smdfw_mode, timeout=args.timeout)
         if args.smdfw_mode == 'spi':
-            import time
-            print("SPI DFU: waiting 60s for device to complete flashing...")
-            time.sleep(60)
-            print("SPI DFU: done waiting.")
+            print("SPI DFU: waiting for device to complete flashing (up to 3min)...")
+            try:
+                result = dev.wait_smd_dfu_result(timeout=180.0)
+                if result['status'] == 0:
+                    print(f"SPI DFU SUCCESS: progress={result['progress']}% firmware={result['info']}")
+                else:
+                    print(f"SPI DFU FAILED: {result['info']}")
+            except TimeoutError:
+                print("SPI DFU: no response from device (timeout 180s)")
 
 
 if __name__ == "__main__":

@@ -91,7 +91,8 @@ class DTECommands:
             key, value = x.split('=')
             try:
                 m[DTEParamMap.key_to_param(key)] = DTEParamMap.decode(key, value)
-            except Exception:
+            except Exception as e:
+                logger.warning('Skipping unknown/invalid param key=%s value=%s: %s', key, value, e)
                 continue
         return m
 
@@ -143,6 +144,10 @@ class DTECommands:
 
     def rstbw(self):
         resp = self._send_and_receive(self._encode_command('RSTBW'))
+        self._decode_response(resp)
+
+    def deplw(self):
+        resp = self._send_and_receive(self._encode_command('DEPLW'))
         self._decode_response(resp)
 
     def scalw(self, sensor, step, value=0):
@@ -225,6 +230,31 @@ class DTECommands:
             'dfu_mode': int(parts[1]),
             'progress': int(parts[2]),
             'info': parts[3] if len(parts) > 3 else ''
+        }
+
+    def wait_smd_dfu_result(self, timeout=180.0):
+        """Wait for async SMDDFU notification after SPI firmware transfer.
+        The tracker sends $O;SMDDFU#<len>;<status>,<dfu_mode>,<progress>,<info>\r
+        asynchronously once DFU completes.
+        Returns dict with status, dfu_mode, progress, info."""
+        self._protocol = DTEProtocol()
+        self._terminate = False
+        self._event.clear()
+        logger.debug('Waiting for async SMDDFU notification (timeout=%ss)', timeout)
+        while True:
+            is_set = self._event.wait(timeout)
+            if not is_set:
+                raise TimeoutError(f'SMD DFU: no response after {timeout}s')
+            if self._terminate:
+                break
+        resp = self._protocol.data()
+        payload = self._decode_response(resp)
+        parts = payload.split(',')
+        return {
+            'status': int(parts[0]),
+            'dfu_mode': int(parts[1]),
+            'progress': int(parts[2]),
+            'info': ','.join(parts[3:]) if len(parts) > 3 else ''
         }
 
     def smdtst(self):

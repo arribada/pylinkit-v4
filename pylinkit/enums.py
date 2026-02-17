@@ -74,9 +74,10 @@ class ArgosModulation(IntEnum):
     VLDA4 = 2
 
 
-# SMD hardware register (byte 9 of radioconf) has LDA2 and LDK swapped
-KINEIS_TO_SMD_MOD = {0: 1, 1: 0, 2: 2}  # LDK(0)->1, LDA2(1)->0, VLDA4(2)->2
-SMD_TO_KINEIS_MOD = {0: 1, 1: 0, 2: 2}  # LDA2(0)->1, LDK(1)->0, VLDA4(2)->2
+# Symmetric swap between KineisModulation and SmdArgosModulation (byte 9 of radioconf).
+# LDK and LDA2 are swapped: Kineis LDK=0 <-> SMD 1, Kineis LDA2=1 <-> SMD 0, VLDA4=2 unchanged.
+KINEIS_TO_SMD_MOD = {0: 1, 1: 0, 2: 2}
+SMD_TO_KINEIS_MOD = {0: 1, 1: 0, 2: 2}
 
 
 class ResetVariable(IntEnum):

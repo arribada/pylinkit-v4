@@ -85,7 +85,7 @@ class DATESTRING():
 class BASE64():
     @staticmethod
     def encode(value):
-        return base64.b64encode(value)
+        return base64.b64encode(value).decode('ascii')
 
     @staticmethod
     def decode(value):
