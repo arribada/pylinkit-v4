@@ -249,6 +249,18 @@ class PRESSURESENSORLOGGINGMODE():
         return PRESSURESENSORLOGGINGMODE.allowed[int(value)]
 
 
+class PRESSUREFULLSCALE():
+    allowed = ['1260', '4060']
+
+    @staticmethod
+    def encode(value):
+        return str(PRESSUREFULLSCALE.allowed.index(str(value)))
+
+    @staticmethod
+    def decode(value):
+        return PRESSUREFULLSCALE.allowed[int(value)]
+
+
 class ZONETYPE():
     allowed = [-1, 'CIRCLE']
 
