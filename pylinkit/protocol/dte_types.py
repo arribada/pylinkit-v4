@@ -392,6 +392,17 @@ class PASPW():
         return base64.b64encode(binascii.unhexlify(hex_bytes)).decode('ascii')
 
 
+PRESSURE_SEA_LEVEL_DEFAULT = 1013.25
+
+
+def barometric_altitude(pressure_hpa, sea_level_hpa=PRESSURE_SEA_LEVEL_DEFAULT):
+    """Compute altitude in meters from pressure using the barometric formula.
+    altitude = 44330 * (1 - (P/P0)^(1/5.255))"""
+    if pressure_hpa <= 0 or sea_level_hpa <= 0:
+        return 0.0
+    return 44330.0 * (1.0 - (pressure_hpa / sea_level_hpa) ** (1.0 / 5.255))
+
+
 class LOGRECORD(dotdict):
     pass
 
@@ -420,16 +431,47 @@ class LOGFILE():
         return r
 
     @staticmethod
-    def decode(data):
+    def decode_log_pressure(payload_text, r):
+        """Parse pressure log payload (CSV text: pressure,temperature[,altitude]).
+        Old format: 2 fields (pressure, temperature).
+        New format: 3 fields (pressure, temperature, altitude).
+        For old format, altitude is computed via barometric formula."""
+        parts = payload_text.strip().split(',')
+        r.pressure = float(parts[0])
+        r.temperature = float(parts[1])
+        if len(parts) >= 3:
+            r.altitude = float(parts[2])
+        else:
+            r.altitude = barometric_altitude(r.pressure)
+        return r
+
+    @staticmethod
+    def decode(data, log_type=None):
         records = []
         while data:
             r = LOGRECORD()
             r.day, r.month, r.year, r.hours, r.mins, r.secs, r.log_t, payload_size = struct.unpack('<BBHBBBBB', data[:9])
             r.log_t = LOGFILE.LOG_TYPES[r.log_t]
-            if (r.log_t == 'LOG_GPS'):
-                LOGFILE.decode_log_gps(data[9:], r)
+            payload_bytes = data[9:9+payload_size]
+            if r.log_t == 'LOG_GPS':
+                LOGFILE.decode_log_gps(payload_bytes, r)
+            elif log_type == 'pressure':
+                payload_text = payload_bytes.decode('ascii', errors='ignore')
+                LOGFILE.decode_log_pressure(payload_text, r)
             else:
-                r.message = data[9:9+payload_size].decode('ascii', errors='ignore')
+                r.message = payload_bytes.decode('ascii', errors='ignore')
             records.append(r)
             data = data[9+payload_size:]
         return records
+
+    @staticmethod
+    def pressure_records_to_csv(records):
+        """Convert pressure log records to CSV string.
+        Header: log_datetime,pressure,temperature,altitude"""
+        lines = ['log_datetime,pressure,temperature,altitude']
+        for r in records:
+            dt = '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}'.format(
+                r.year, r.month, r.day, r.hours, r.mins, r.secs)
+            lines.append('{},{:.2f},{:.2f},{:.2f}'.format(
+                dt, r.pressure, r.temperature, r.altitude))
+        return '\n'.join(lines)

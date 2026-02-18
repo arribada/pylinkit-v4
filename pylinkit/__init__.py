@@ -66,6 +66,14 @@ class Tracker:
     def dumpd(self, log_type):
         return self._dte.dumpd(log_type)
 
+    def dumpd_pressure(self):
+        """Dump pressure logs decoded with altitude (retrocompat with old logs)."""
+        return self._dte.dumpd_pressure()
+
+    def pressure_log_to_csv(self):
+        """Dump pressure logs as CSV string: log_datetime,pressure,temperature,altitude"""
+        return self._dte.pressure_log_to_csv()
+
     def erase(self, log_type):
         return self._dte.erase(log_type)
 
@@ -87,11 +95,19 @@ class Tracker:
     def scalr(self, sensor, step):
         return self._dte.scalr(sensor, step)
 
+    def battery(self):
+        """Read battery status (voltage, SOC, low/critical flags)."""
+        return self._dte.battery()
+
     def pwron(self, component):
         self._dte.pwron(component)
 
-    def argostx(self, mod, power, freq, size, tcxo):
-        self._dte.argostx(mod, power, freq, size, tcxo)
+    def argostx(self, mod='LDA2', tcxo=2):
+        self._dte.argostx(mod, tcxo)
+
+    def update_radioconf(self, mod):
+        """Update RADIOCONF (IDP14) for given modulation."""
+        self._dte.update_radioconf(mod)
 
     def smdcd(self, id, addr, seckey, radioconf):
         self._dte.smdcd(id, addr, seckey, radioconf)
@@ -112,6 +128,10 @@ class Tracker:
         """Wait for async SMDDFU notification after SPI firmware transfer.
         Returns dict with status, dfu_mode, progress, info."""
         return self._dte.wait_smd_dfu_result(timeout)
+
+    def swsst(self):
+        """Read SWS (Salt Water Switch) status."""
+        return self._dte.swsst()
 
     def poll(self, key, repetitions=1):
         for i in range(repetitions):

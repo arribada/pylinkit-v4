@@ -4,7 +4,7 @@ from threading import Event
 
 from .dte_protocol import DTEProtocol, DTEProtocolError
 from .dte_params import DTEParamMap
-from .dte_types import BASE64, PASPW
+from .dte_types import BASE64, PASPW, LOGFILE
 from ..enums import BaseLogDType, BaseEraseType, BaseSensorCalType, ComponentPower, ArgosModulation, SensrMask, DTEError
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,23 @@ class DTECommands:
         resp = self._send_and_receive(self._encode_command('PARMW', param_values=param_values))
         self._decode_response(resp)
 
+    def battery(self):
+        """Read battery status via PARMR (BATT_SOC, BATT_VOLTAGE, LB_TRESHOLD, LB_CRITICAL_THRESH)."""
+        params = self.parmr(['POT03', 'POT06', 'LBP02', 'LBP12'])
+        voltage_v = params.get('BATT_VOLTAGE', 0)
+        voltage_mv = int(voltage_v * 1000) if isinstance(voltage_v, float) else int(voltage_v)
+        soc = int(params.get('BATT_SOC', 0))
+        lb_thresh = int(params.get('LB_TRESHOLD', 0))
+        critical_v = params.get('LB_CRITICAL_THRESH', 0)
+        return {
+            'voltage_mv': voltage_mv,
+            'soc': soc,
+            'low_battery': soc <= lb_thresh,
+            'critical': (voltage_mv / 1000.0) <= float(critical_v),
+            'lb_threshold_pct': lb_thresh,
+            'critical_threshold_v': float(critical_v),
+        }
+
     def dumpd(self, log_type='sensor'):
         type_value = BaseLogDType.from_name(log_type).value
         resp = self._send_and_receive(
@@ -121,6 +138,18 @@ class DTECommands:
             decoded_data = BASE64.decode(data)
             raw_data += decoded_data
         return raw_data
+
+    def dumpd_pressure(self):
+        """Dump pressure logs and decode to structured records with altitude.
+        Returns list of LOGRECORD with pressure, temperature, altitude fields."""
+        raw_data = self.dumpd('pressure')
+        return LOGFILE.decode(raw_data, log_type='pressure')
+
+    def pressure_log_to_csv(self):
+        """Dump pressure logs and return CSV string.
+        Header: log_datetime,pressure,temperature,altitude"""
+        records = self.dumpd_pressure()
+        return LOGFILE.pressure_records_to_csv(records)
 
     def paspw(self, json_file_data):
         resp = self._send_and_receive(
@@ -173,13 +202,31 @@ class DTECommands:
         )
         self._decode_response(resp)
 
-    def argostx(self, mod, power, freq, size, tcxo):
+    # Payload size per modulation (KIM2 hardware)
+    MODULATION_SIZE = {'LDK': 16, 'LDA2': 24, 'VLDA4': 3}
+
+    def argostx(self, mod='LDA2', tcxo=2):
         mod_value = ArgosModulation[mod.upper()].value
+        size = self.MODULATION_SIZE.get(mod.upper(), 24)
         resp = self._send_and_receive(
-            self._encode_command('SATTX', args=[str(mod_value), str(power), str(freq), str(size), str(tcxo)]),
+            self._encode_command('SATTX', args=[str(mod_value), '0', '0', str(size), str(tcxo)]),
             timeout=30.0
         )
         self._decode_response(resp)
+
+    # RADIOCONF per modulation (16 bytes hex = 32 chars, from Kineis SDK kns_app_conf.h)
+    RADIOCONF = {
+        'LDK':   '03921fb104b92859209b18abd009de96',
+        'LDA2':  '',  # TODO: fill from Kineis SDK
+        'VLDA4': '',  # TODO: fill from Kineis SDK
+    }
+
+    def update_radioconf(self, mod):
+        """Update RADIOCONF (IDP14) for given modulation. KIM2 applies at next power-on."""
+        rconf = self.RADIOCONF.get(mod.upper(), '')
+        if not rconf:
+            raise ValueError(f'No RADIOCONF defined for modulation {mod}')
+        self.parmw({'ARGOS_RADIOCONF': rconf})
 
     def smdcd(self, id, addr, seckey, radioconf):
         resp = self._send_and_receive(
@@ -189,9 +236,8 @@ class DTECommands:
         self._decode_response(resp)
 
     def sensr(self, mask=SensrMask.ALL, timeout=60):
-        """Read sensors. mask: bitmask (1=battery, 2=pressure, 4=gnss, 7=all).
-        Returns dict with battery_mv, battery_soc, pressure_mbar, temperature_c,
-        latitude, longitude, hdop, num_satellites."""
+        """Read sensors. mask: bitmask (1=battery, 2=pressure, 4=gnss, 8=accel, F=all).
+        Returns dict with battery, pressure, altitude, gnss, accel fields."""
         resp = self._send_and_receive(
             self._encode_command('SENSR', args=[str(mask), str(timeout)]),
             timeout=float(timeout) + 5.0
@@ -203,17 +249,18 @@ class DTECommands:
             'battery_soc': int(parts[1]),
             'pressure_mbar': float(parts[2]),
             'temperature_c': float(parts[3]),
-            'latitude': float(parts[4]),
-            'longitude': float(parts[5]),
-            'hdop': float(parts[6]),
-            'num_satellites': int(parts[7]),
+            'altitude_m': float(parts[4]),
+            'latitude': float(parts[5]),
+            'longitude': float(parts[6]),
+            'hdop': float(parts[7]),
+            'num_satellites': int(parts[8]),
         }
-        if len(parts) > 8:
-            result['accel_x'] = float(parts[8])
-            result['accel_y'] = float(parts[9])
-            result['accel_z'] = float(parts[10])
-            result['accel_temp'] = float(parts[11])
-            result['activity'] = int(parts[12])
+        if len(parts) > 9:
+            result['accel_x'] = float(parts[9])
+            result['accel_y'] = float(parts[10])
+            result['accel_z'] = float(parts[11])
+            result['accel_temp'] = float(parts[12])
+            result['activity'] = int(parts[13])
         return result
 
     def smddfu(self, action):
@@ -264,3 +311,23 @@ class DTECommands:
             timeout=30.0
         )
         return self._decode_response(resp)
+
+    def swsst(self):
+        """Send SWSST command. Returns SWS (Salt Water Switch) status."""
+        resp = self._send_and_receive(
+            self._encode_command('SWSST'),
+            timeout=10.0
+        )
+        payload = self._decode_response(resp)
+        parts = payload.split(',')
+        return {
+            'air': int(parts[0]),
+            'water': int(parts[1]),
+            'threshold': int(parts[2]),
+            'hysteresis': int(parts[3]),
+            'raw_adc': int(parts[4]),
+            'filtered_adc': int(parts[5]),
+            'calibrated': bool(int(parts[6])),
+            'underwater': bool(int(parts[7])),
+            'time_in_state': int(parts[8]),
+        }

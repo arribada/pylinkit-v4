@@ -9,8 +9,8 @@ from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, creat
 
 erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01']
 dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01']
-scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'mcp47x6', 'thermistor']
-scalr_options = ['cdt', 'axl', 'thermistor']
+scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'mcp47x6', 'thermistor', 'pressure']
+scalr_options = ['cdt', 'axl', 'thermistor', 'pressure']
 resetv_options = {'tx_counter': 1, 'rx_counter': 3, 'rx_time': 4}
 modulation_options = {'LDK': 0, 'LDA2': 1, 'VLDA4': 2}
 pwr_options = ['all', 'gnss', 'sensors', 'satellite', 'off']
@@ -89,6 +89,10 @@ cal_group.add_argument('--scalr', type=str, choices=scalr_options, required=Fals
 cal_group.add_argument('--command', type=int, required=False, help='Calibration command number')
 cal_group.add_argument('--value', type=float, default=0, required=False, help='Calibration command value')
 
+# === Battery ===
+parser.add_argument('--battery', action='store_true', required=False,
+                    help='Read battery status (voltage, SOC, low/critical)')
+
 # === Sensor Read ===
 sensr_options = {'all': 0x0F, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04, 'accel': 0x08}
 sensor_group = parser.add_argument_group('Sensor Read')
@@ -99,14 +103,11 @@ sensor_group.add_argument('--sensr_timeout', type=int, default=60, required=Fals
 
 # === Argos/Satellite ===
 sat_group = parser.add_argument_group('Argos/Satellite')
-sat_group.add_argument('--argostx', action='store_true', required=False, help='Send argos TX packet')
-sat_group.add_argument('--argosmod', type=str, default='LDA2', required=False,
-                       help='Kineis modulation (LDK, LDA2, VLDA4)')
-sat_group.add_argument('--argosfreq', type=float, default=401.65, required=False,
-                       help='Argos frequency in MHz')
-sat_group.add_argument('--argossize', type=int, default=15, required=False, help='Packet size in bytes')
-sat_group.add_argument('--argostcxo', type=int, default=5, required=False, help='TCXO warm-up in seconds')
-sat_group.add_argument('--argospower', type=int, default=350, required=False, help='TX power in mW')
+sat_group.add_argument('--argostx', action='store_true', required=False, help='Send argos TX test packet')
+sat_group.add_argument('--argosmod', type=str, default=None, required=False,
+                       choices=['LDK', 'LDA2', 'VLDA4'],
+                       help='Kineis modulation. If set, updates RADIOCONF + KMAC on device')
+sat_group.add_argument('--argostcxo', type=int, default=2, required=False, help='TCXO warm-up in seconds (default: 2)')
 
 # === SMD ===
 smd_group = parser.add_argument_group('SMD Module')
@@ -125,6 +126,11 @@ smd_group.add_argument('--smddfu', type=str, choices=smddfu_actions.keys(), requ
                        help='SMD DFU action (enter, exit, status, update, info, version)')
 smd_group.add_argument('--smdtst', action='store_true', required=False,
                        help='Run SMD SPI test')
+
+# === SWS (Salt Water Switch) ===
+parser.add_argument('--swsst', action='store_true', required=False,
+                    help='Read Salt Water Switch status')
+
 # === Misc ===
 parser.add_argument('--debug', action='store_true', required=False, help='Turn on debug trace')
 parser.add_argument('--version', action='version', version='%(prog)s ' + importlib.metadata.version('pylinkit'))
@@ -371,6 +377,9 @@ def main():
             --scalw thermistor --command 1 --value XXXX; perform for millidegree
             --scalw thermistor --command 2 ; save for millidegree
 
+            Pressure (sea level calibration)::
+            --scalw pressure --command 0 --value 1013.25 ; set sea level pressure in hPa (default 1013.25)
+
             """)
             return
         dev.scalw(args.scalw, args.command, args.value)
@@ -400,9 +409,24 @@ def main():
             thermistor::
 
             --scalr thermistor --command 0 ; read threshold temp
+
+            pressure::
+
+            --scalr pressure --command 0 ; read sea level pressure (hPa)
             """)
             return
         print(dev.scalr(args.scalr, args.command))
+
+    if args.battery:
+        try:
+            r = dev.battery()
+            print(f"Battery:")
+            print(f"  Voltage:  {r['voltage_mv']}mV ({r['voltage_mv']/1000:.3f}V)")
+            print(f"  SOC:      {r['soc']}%")
+            print(f"  Low:      {'YES' if r['low_battery'] else 'No'} (threshold: {r['lb_threshold_pct']}%)")
+            print(f"  Critical: {'YES' if r['critical'] else 'No'} (threshold: {r['critical_threshold_v']:.1f}V)")
+        except Exception as e:
+            print(f"Battery read FAILED: {e}")
 
     if args.sensr:
         r = dev.sensr(sensr_options[args.sensr], args.sensr_timeout)
@@ -412,6 +436,7 @@ def main():
         if mask & 0x02:
             print(f"Pressure: {r['pressure_mbar']:.1f} mbar")
             print(f"Temperature: {r['temperature_c']:.1f} C")
+            print(f"Altitude: {r['altitude_m']:.2f} m")
         if mask & 0x04:
             if r['hdop'] < 99.0:
                 print(f"GNSS: {r['latitude']:.6f}, {r['longitude']:.6f}")
@@ -424,7 +449,11 @@ def main():
             print(f"Activity: {r['activity']}")
 
     if args.argostx:
-        dev.argostx(args.argosmod, args.argospower, args.argosfreq, args.argossize, args.argostcxo)
+        mod = args.argosmod or 'LDA2'
+        if args.argosmod is not None:
+            print(f"WARNING: --argosmod {args.argosmod} will update RADIOCONF (IDP14) on the SMD module")
+            dev.update_radioconf(args.argosmod)
+        dev.argostx(mod, args.argostcxo)
 
     if args.smdcd:
         dev.smdcd(args.smdid, args.smdaddr, args.smdseckey, args.smdradioconf)
@@ -445,6 +474,22 @@ def main():
             print(f"SMD SPI TEST: {result}")
         except Exception as e:
             print(f"SMD SPI TEST FAILED: {e}")
+
+    if args.swsst:
+        try:
+            r = dev.swsst()
+            print(f"SWS Status:")
+            print(f"  Air baseline:  {r['air']} ADC")
+            print(f"  Water baseline: {r['water']} ADC")
+            print(f"  Threshold:     {r['threshold']} ADC")
+            print(f"  Hysteresis:    {r['hysteresis']} ADC")
+            print(f"  Raw ADC:       {r['raw_adc']}")
+            print(f"  Filtered ADC:  {r['filtered_adc']}")
+            print(f"  Calibrated:    {'Yes' if r['calibrated'] else 'No'}")
+            print(f"  State:         {'Underwater' if r['underwater'] else 'Surface'}")
+            print(f"  Time in state: {r['time_in_state']}s")
+        except Exception as e:
+            print(f"SWS Status FAILED: {e}")
 
     if args.smdfw:
         fw_data = args.smdfw.read()
