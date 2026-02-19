@@ -477,6 +477,37 @@ class LOGFILE():
         return records
 
     @staticmethod
+    def parse_pressure_csv(csv_text):
+        """Parse pressure CSV from DUMPD into LOGRECORD list.
+        CSV format: log_datetime,pressure,temperature[,altitude]
+        Datetime format: DD/MM/YYYY HH:MM:SS"""
+        records = []
+        lines = csv_text.strip().split('\n')
+        for line in lines[1:]:  # skip header
+            if not line.strip():
+                continue
+            r = LOGRECORD()
+            parts = line.split(',')
+            dt_str = parts[0].strip()
+            date_part, time_part = dt_str.split(' ')
+            d, m, y = date_part.split('/')
+            h, mi, s = time_part.split(':')
+            r.day = int(d)
+            r.month = int(m)
+            r.year = int(y)
+            r.hours = int(h)
+            r.mins = int(mi)
+            r.secs = int(s)
+            r.pressure = float(parts[1])
+            r.temperature = float(parts[2])
+            if len(parts) >= 4 and parts[3].strip():
+                r.altitude = float(parts[3])
+            else:
+                r.altitude = barometric_altitude(r.pressure)
+            records.append(r)
+        return records
+
+    @staticmethod
     def pressure_records_to_csv(records):
         """Convert pressure log records to CSV string.
         Header: log_datetime,pressure,temperature,altitude"""

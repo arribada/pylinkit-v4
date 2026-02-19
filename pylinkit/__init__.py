@@ -112,8 +112,8 @@ class Tracker:
     def smdcd(self, id, addr, seckey, radioconf):
         self._dte.smdcd(id, addr, seckey, radioconf)
 
-    def sensr(self, mask=0x0F, timeout=60):
-        """Read sensors. Returns dict with battery, pressure, temperature, GNSS."""
+    def sensr(self, mask=0x1F, timeout=60):
+        """Read sensors. Returns dict with battery, pressure, gnss, accel, thermistor."""
         return self._dte.sensr(mask, timeout)
 
     def smddfu(self, action):
@@ -128,6 +128,10 @@ class Tracker:
         """Wait for async SMDDFU notification after SPI firmware transfer.
         Returns dict with status, dfu_mode, progress, info."""
         return self._dte.wait_smd_dfu_result(timeout)
+
+    def satdp(self):
+        """Start Doppler calibration. Periodic TX until device reset."""
+        self._dte.satdp()
 
     def swsst(self):
         """Read SWS (Salt Water Switch) status."""

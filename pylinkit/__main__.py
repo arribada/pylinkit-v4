@@ -9,7 +9,7 @@ from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, creat
 
 erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01']
 dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01']
-scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'mcp47x6', 'thermistor', 'pressure']
+scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'thermistor', 'pressure']
 scalr_options = ['cdt', 'axl', 'thermistor', 'pressure']
 resetv_options = {'tx_counter': 1, 'rx_counter': 3, 'rx_time': 4}
 modulation_options = {'LDK': 0, 'LDA2': 1, 'VLDA4': 2}
@@ -67,10 +67,6 @@ cmd_group.add_argument('--parmw', type=argparse.FileType('r'), required=False,
                        help='Filename to read [PARAM] configuration from')
 cmd_group.add_argument('--paspw', type=argparse.FileType('r'), required=False,
                        help='Filename (JSON) to read pass predict configuration from')
-cmd_group.add_argument('--dump_sensor', type=argparse.FileType('wb'), required=False,
-                       help='Dump sensor log file')
-cmd_group.add_argument('--dump_system', type=argparse.FileType('wb'), required=False,
-                       help='Dump system log file')
 cmd_group.add_argument('--dumpd', type=argparse.FileType('wb'), required=False,
                        help='Dump the specified log file')
 cmd_group.add_argument('--dumpd_type', type=str, choices=dumpd_options, required=False,
@@ -94,10 +90,10 @@ parser.add_argument('--battery', action='store_true', required=False,
                     help='Read battery status (voltage, SOC, low/critical)')
 
 # === Sensor Read ===
-sensr_options = {'all': 0x0F, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04, 'accel': 0x08}
+sensr_options = {'all': 0x1F, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04, 'accel': 0x08, 'thermistor': 0x10}
 sensor_group = parser.add_argument_group('Sensor Read')
 sensor_group.add_argument('--sensr', type=str, choices=sensr_options.keys(), required=False,
-                          help='Read sensors (all, battery, pressure, gnss, accel)')
+                          help='Read sensors (all, battery, pressure, gnss, accel, thermistor)')
 sensor_group.add_argument('--sensr_timeout', type=int, default=60, required=False,
                           help='GNSS timeout in seconds (default: 60)')
 
@@ -108,6 +104,8 @@ sat_group.add_argument('--argosmod', type=str, default=None, required=False,
                        choices=['LDK', 'LDA2', 'VLDA4'],
                        help='Kineis modulation. If set, updates RADIOCONF + KMAC on device')
 sat_group.add_argument('--argostcxo', type=int, default=2, required=False, help='TCXO warm-up in seconds (default: 2)')
+sat_group.add_argument('--satdp', action='store_true', required=False,
+                       help='Start Doppler calibration (periodic TX until reset)')
 
 # === SMD ===
 smd_group = parser.add_argument_group('SMD Module')
@@ -287,17 +285,15 @@ def main():
     if args.paspw:
         dev.paspw(args.paspw.read())
 
-    if args.dump_sensor:
-        args.dump_sensor.write(dev.dumpd('sensor'))
-        args.dump_sensor.close()
-
-    if args.dump_system:
-        args.dump_system.write(dev.dumpd('system'))
-        args.dump_system.close()
-
     if args.dumpd and args.dumpd_type:
-        args.dumpd.write(dev.dumpd(args.dumpd_type))
-        args.dumpd.close()
+        try:
+            args.dumpd.write(dev.dumpd(args.dumpd_type))
+            args.dumpd.close()
+            print(f"Dump '{args.dumpd_type}' saved to {args.dumpd.name}")
+        except Exception as e:
+            args.dumpd.close()
+            print(f"Dump '{args.dumpd_type}' FAILED: {e}")
+            print(f"  (sensor log may not exist - check firmware Makefile configuration)")
 
     if args.erase:
         dev.erase(args.erase)
@@ -328,57 +324,52 @@ def main():
             print("""
             Calibration requires a command.  Use --command to provide a command:
 
-            cdt::
+            axl (BMA400, device_id=0)::
 
-            --scalw cdt --command 0 ; to reset existing CDT calibration
-            --scalw cdt --command 2 --value xxxx ; to override CA polynomial coefficient
-            --scalw cdt --command 3 --value xxxx ; to override CB polynomial coefficient
-            --scalw cdt --command 4 --value xxxx ; to override CC polynomial coefficient
-            --scalw cdt --command 5 ; to save all CDT calibration values to filesystem
-            --scalw cdt --command 6 --value xxxx ; set gain factor calibration value
-            --scalw cdt --command 7 --value xxxx; power on and configure AD9533 for sweep @ frequency xxxx
-            --scalw cdt --command 8 ; power off AD9533
+            --scalw axl --command 0 --value X ; set coefficient X (g-force)
+            --scalw axl --command 1 --value X ; set coefficient Y (g-force)
+            --scalw axl --command 2 --value X ; set coefficient Z (g-force)
+            --scalw axl --command 3 ; auto-calibrate (X=0, Y=0, Z=1g)
+            --scalw axl --command 6 ; save calibration to AXL.CAL
 
-            ph::
+            pressure (LPS28DFW, device_id=1)::
 
-            --scalw ph --command 0 ; reset PH calibration
-            --scalw ph --command 1 ; perform PH 7 (Mid) calibration
-            --scalw ph --command 2 ; perform PH 1 (Low) calibration
-            --scalw ph --command 3 ; perform PH 14 (High) calibration
-
-            axl::
-
-            --scalw axl --command 0 --value xxxx ; to override threshold value
-            --scalw axl --command 1 --value xxxx ; to override wakeup duration value
-            --scalw axl --command 2 --value xxxx ; to override wakeup gforce value
-            --scalw axl --command 3 --value xxxx ; to override power mode value
-            --scalw axl --command 4 --value xxxx ; to override x value
-            --scalw axl --command 5 --value xxxx ; to override y value
-            --scalw axl --command 6 --value xxxx ; to override z value
-
-            rtd::
-
-            --scalw rtd --command 0 ; reset RTD calibration, wakeup device
-            --scalw rtd --command 1 ; perform 0C calibration
-            --scalw rtd --command 2 ; perform 100C calibration
-            --scalw rtd --command 3 ; put device back into sleep mode
-
-            mcp47x6::
-
-            --scalw mcp47x6 --command 0 ; reset mcp47x6 calibration
-            --scalw mcp47x6 --command 350 --value 2345 ; calibration point for DAC for 350 mW power
-            --scalw mcp47x6 --command 500 --value 2645 ; calibration point for DAC for 500 mW power
-            --scalw mcp47x6 --command 1 ; save mcp47x6 calibration to file
-
-            Note: use in conjunction with --argostx to send a packet at calibrated mW
-
-            Thermistor::
-            --scalw thermistor --command 0 ; reset thermistor calibration
-            --scalw thermistor --command 1 --value XXXX; perform for millidegree
-            --scalw thermistor --command 2 ; save for millidegree
-
-            Pressure (sea level calibration)::
             --scalw pressure --command 0 --value 1013.25 ; set sea level pressure in hPa (default 1013.25)
+
+            ph (OEM pH, device_id=3)::
+
+            --scalw ph --command 0 ; reset all pH calibration
+            --scalw ph --command 1 ; calibrate midpoint (pH 7.0)
+            --scalw ph --command 2 ; calibrate low point (pH 4.0)
+            --scalw ph --command 3 ; calibrate high point (pH 10.0)
+            --scalw ph --command 4 --value X ; set temperature compensation (C)
+            Order: clear -> low -> mid -> high
+
+            rtd (OEM/EZO temperature, device_id=4)::
+
+            --scalw rtd --command 0 ; clear calibration
+            --scalw rtd --command 1 ; calibrate 0C (ice water)
+            --scalw rtd --command 2 ; calibrate 100C (boiling water)
+            --scalw rtd --command 3 --value X ; calibrate arbitrary temperature (C) [EZO only]
+            --scalw rtd --command 4 ; find (LED blink) [EZO only]
+            --scalw rtd --command 5 ; factory reset [EZO only]
+
+            cdt (conductivity/impedance, device_id=5)::
+
+            --scalw cdt --command 0 ; reset CDT calibration
+            --scalw cdt --command 2 --value X ; set CA coefficient (quadratic)
+            --scalw cdt --command 3 --value X ; set CB coefficient (linear)
+            --scalw cdt --command 4 --value X ; set CC coefficient (constant)
+            --scalw cdt --command 5 ; save calibration to CDT.CAL
+            --scalw cdt --command 6 --value X ; set gain factor
+            --scalw cdt --command 7 --value X ; start AD5933 at frequency X Hz
+            --scalw cdt --command 8 ; stop AD5933
+
+            thermistor (device_id=7)::
+
+            --scalw thermistor --command 0 ; reset thermistor calibration
+            --scalw thermistor --command 1 --value X ; calibrate millidegree
+            --scalw thermistor --command 2 ; save calibration
 
             """)
             return
@@ -389,30 +380,28 @@ def main():
             print("""
             Calibration read requires a command.  Use --command to provide a command:
 
-            cdt::
+            axl (BMA400, device_id=0)::
 
-            --scalr cdt --command 0 ; read CA polynomial coefficient
-            --scalr cdt --command 1 ; read CB polynomial coefficient
-            --scalr cdt --command 2 ; read CC polynomial coefficient
-            --scalr cdt --command 3 ; read gain factor
-            --scalr cdt --command 4 ; read AD5933 raw sensor real value
-            --scalr cdt --command 5 ; read AD5933 raw sensor imaginary value
-            --scalr cdt --command 6 ; read impedence value using stored calibrated gain factor
+            --scalr axl --command 4 ; read calibrated X, Y, Z values
+            --scalr axl --command 5 ; read calibration coefficients
 
-            axl::
-
-            --scalr axl --command 0 ; read X
-            --scalr axl --command 1 ; read Y
-            --scalr axl --command 2 ; read Z
-            --scalr axl --command 3 ; read XYZ
-
-            thermistor::
-
-            --scalr thermistor --command 0 ; read threshold temp
-
-            pressure::
+            pressure (LPS28DFW, device_id=1)::
 
             --scalr pressure --command 0 ; read sea level pressure (hPa)
+
+            cdt (conductivity/impedance, device_id=5)::
+
+            --scalr cdt --command 0 ; read CA coefficient
+            --scalr cdt --command 1 ; read CB coefficient
+            --scalr cdt --command 2 ; read CC coefficient
+            --scalr cdt --command 3 ; read gain factor
+            --scalr cdt --command 4 ; read impedance real (I)
+            --scalr cdt --command 5 ; read impedance imaginary (Q)
+            --scalr cdt --command 6 ; read calibrated impedance
+
+            thermistor (device_id=7)::
+
+            --scalr thermistor --command 0 ; read threshold temp
             """)
             return
         print(dev.scalr(args.scalr, args.command))
@@ -435,18 +424,16 @@ def main():
             print(f"Battery: {r['battery_mv']}mV ({r['battery_soc']}%)")
         if mask & 0x02:
             print(f"Pressure: {r['pressure_mbar']:.1f} mbar")
-            print(f"Temperature: {r['temperature_c']:.1f} C")
-            print(f"Altitude: {r['altitude_m']:.2f} m")
         if mask & 0x04:
             if r['hdop'] < 99.0:
                 print(f"GNSS: {r['latitude']:.6f}, {r['longitude']:.6f}")
                 print(f"HDOP: {r['hdop']:.1f}, Satellites: {r['num_satellites']}")
             else:
                 print(f"GNSS: No valid fix (satellites: {r['num_satellites']})")
-        if mask & 0x08 and 'accel_x' in r:
+        if mask & 0x08:
             print(f"Accel: X={r['accel_x']:.3f}g Y={r['accel_y']:.3f}g Z={r['accel_z']:.3f}g")
-            print(f"Accel Temp: {r['accel_temp']:.1f} C")
-            print(f"Activity: {r['activity']}")
+        if mask & 0x10:
+            print(f"Thermistor: {r['thermistor_temp']:.1f} C")
 
     if args.argostx:
         mod = args.argosmod or 'LDA2'
@@ -454,6 +441,13 @@ def main():
             print(f"WARNING: --argosmod {args.argosmod} will update RADIOCONF (IDP14) on the SMD module")
             dev.update_radioconf(args.argosmod)
         dev.argostx(mod, args.argostcxo)
+
+    if args.satdp:
+        try:
+            dev.satdp()
+            print("Doppler calibration started (periodic TX until device reset)")
+        except Exception as e:
+            print(f"Doppler calibration FAILED: {e}")
 
     if args.smdcd:
         dev.smdcd(args.smdid, args.smdaddr, args.smdseckey, args.smdradioconf)

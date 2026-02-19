@@ -54,7 +54,6 @@ class BaseSensorCalType(IntEnum):
     PH = 3
     RTD = 4
     CDT = 5
-    MCP47X6 = 6
     THERMISTOR = 7
 
 
@@ -93,7 +92,8 @@ class SensrMask(IntEnum):
     PRESSURE = 0x02
     GNSS = 0x04
     ACCEL = 0x08
-    ALL = 0x0F
+    THERMISTOR = 0x10
+    ALL = 0x1F
 
 
 class DTEError(IntEnum):

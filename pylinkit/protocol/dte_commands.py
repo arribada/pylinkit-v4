@@ -128,13 +128,13 @@ class DTECommands:
     def dumpd(self, log_type='sensor'):
         type_value = BaseLogDType.from_name(log_type).value
         resp = self._send_and_receive(
-            self._encode_command('DUMPD', args=[str(type_value)]),
+            self._encode_command('DUMPD', args=[format(type_value, 'x')]),
             timeout=60.0
         )
         responses = self._decode_multi_response(resp)
         raw_data = b''
         for r in responses:
-            _, _, data = r.split(',')
+            _, _, data = r.split(',', 2)
             decoded_data = BASE64.decode(data)
             raw_data += decoded_data
         return raw_data
@@ -143,13 +143,13 @@ class DTECommands:
         """Dump pressure logs and decode to structured records with altitude.
         Returns list of LOGRECORD with pressure, temperature, altitude fields."""
         raw_data = self.dumpd('pressure')
-        return LOGFILE.decode(raw_data, log_type='pressure')
+        csv_text = raw_data.decode('ascii', errors='ignore')
+        return LOGFILE.parse_pressure_csv(csv_text)
 
     def pressure_log_to_csv(self):
         """Dump pressure logs and return CSV string.
         Header: log_datetime,pressure,temperature,altitude"""
-        records = self.dumpd_pressure()
-        return LOGFILE.pressure_records_to_csv(records)
+        return self.dumpd('pressure').decode('ascii', errors='ignore')
 
     def paspw(self, json_file_data):
         resp = self._send_and_receive(
@@ -160,7 +160,7 @@ class DTECommands:
 
     def erase(self, log_type):
         type_value = BaseEraseType.from_name(log_type).value
-        resp = self._send_and_receive(self._encode_command('ERASE', args=[str(type_value)]))
+        resp = self._send_and_receive(self._encode_command('ERASE', args=[format(type_value, 'x')]))
         self._decode_response(resp)
 
     def factw(self):
@@ -236,32 +236,30 @@ class DTECommands:
         self._decode_response(resp)
 
     def sensr(self, mask=SensrMask.ALL, timeout=60):
-        """Read sensors. mask: bitmask (1=battery, 2=pressure, 4=gnss, 8=accel, F=all).
-        Returns dict with battery, pressure, altitude, gnss, accel fields."""
+        """Read sensors. mask: bitmask (0x01=battery, 0x02=pressure, 0x04=gnss,
+        0x08=accel, 0x10=thermistor, 0x1F=all).
+        Response: battery_mv,battery_soc,pressure_mbar,gnss_lat,gnss_lon,
+        gnss_hdop,gnss_num_sats,accel_x,accel_y,accel_z,thermistor_temp
+        Non-requested sensors return 0 in their fields."""
         resp = self._send_and_receive(
             self._encode_command('SENSR', args=[str(mask), str(timeout)]),
             timeout=float(timeout) + 5.0
         )
         payload = self._decode_response(resp)
         parts = payload.split(',')
-        result = {
+        return {
             'battery_mv': int(parts[0]),
             'battery_soc': int(parts[1]),
             'pressure_mbar': float(parts[2]),
-            'temperature_c': float(parts[3]),
-            'altitude_m': float(parts[4]),
-            'latitude': float(parts[5]),
-            'longitude': float(parts[6]),
-            'hdop': float(parts[7]),
-            'num_satellites': int(parts[8]),
+            'latitude': float(parts[3]),
+            'longitude': float(parts[4]),
+            'hdop': float(parts[5]),
+            'num_satellites': int(parts[6]),
+            'accel_x': float(parts[7]),
+            'accel_y': float(parts[8]),
+            'accel_z': float(parts[9]),
+            'thermistor_temp': float(parts[10]),
         }
-        if len(parts) > 9:
-            result['accel_x'] = float(parts[9])
-            result['accel_y'] = float(parts[10])
-            result['accel_z'] = float(parts[11])
-            result['accel_temp'] = float(parts[12])
-            result['activity'] = int(parts[13])
-        return result
 
     def smddfu(self, action):
         """Send SMDDFU command.
@@ -311,6 +309,15 @@ class DTECommands:
             timeout=30.0
         )
         return self._decode_response(resp)
+
+    def satdp(self):
+        """Start Doppler calibration. Periodic satellite TX until device reset.
+        Async response: device waits for first TX result before responding."""
+        resp = self._send_and_receive(
+            self._encode_command('SATDP'),
+            timeout=30.0
+        )
+        self._decode_response(resp)
 
     def swsst(self):
         """Send SWSST command. Returns SWS (Salt Water Switch) status."""
