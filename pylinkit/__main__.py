@@ -213,15 +213,15 @@ def main():
 
             # Configure BLE trace mode if needed
             if args.ble_trace and address:
-                response = input("\nIs the device configured with DEBUG_OUTPUT_MODE = BLE? (y/n): ")
+                response = input("\nIs the device configured with DEBUG_OUTPUT_MODE = BLE_NUS? (y/n): ")
                 if response.lower() != 'y':
                     import time
                     print(f"\nConfiguring device {address} for BLE trace output...")
                     import pylinkit
                     temp_dev = pylinkit.Tracker(address)
                     temp_dev.sync()
-                    temp_dev.set({'DEBUG_OUTPUT_MODE': 'BLE'})
-                    print("Configuration updated: DEBUG_OUTPUT_MODE = BLE")
+                    temp_dev.set({'DEBUG_OUTPUT_MODE': 'BLE_NUS'})
+                    print("Configuration updated: DEBUG_OUTPUT_MODE = BLE_NUS")
                     del temp_dev
                     print("Waiting for BLE connection to be released...")
                     time.sleep(3)
