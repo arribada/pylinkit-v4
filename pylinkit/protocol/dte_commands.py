@@ -34,6 +34,7 @@ class DTECommands:
         self._transport.send_data(command_str.encode('ascii'))
         while True:
             is_set = self._event.wait(timeout)
+            self._event.clear()
             if not is_set:
                 raise TimeoutError(f'DTE command timed out after {timeout}s')
             if self._terminate:
@@ -49,7 +50,6 @@ class DTECommands:
         except DTEProtocolError:
             self._terminate = True
         self._event.set()
-        self._event.clear()
 
     def _encode_command(self, command, params=[], param_values={}, args=[]):
         if params:
@@ -288,6 +288,7 @@ class DTECommands:
         logger.debug('Waiting for async SMDDFU notification (timeout=%ss)', timeout)
         while True:
             is_set = self._event.wait(timeout)
+            self._event.clear()
             if not is_set:
                 raise TimeoutError(f'SMD DFU: no response after {timeout}s')
             if self._terminate:
