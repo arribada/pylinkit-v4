@@ -401,7 +401,7 @@ def main():
 
             thermistor (device_id=7)::
 
-            --scalr thermistor --command 0 ; read threshold temp
+            --scalr thermistor --command 0 ; read calibration coefficient (offset)
             """)
             return
         print(dev.scalr(args.scalr, args.command))
@@ -413,7 +413,7 @@ def main():
             print(f"  Voltage:  {r['voltage_mv']}mV ({r['voltage_mv']/1000:.3f}V)")
             print(f"  SOC:      {r['soc']}%")
             print(f"  Low:      {'YES' if r['low_battery'] else 'No'} (threshold: {r['lb_threshold_pct']}%)")
-            print(f"  Critical: {'YES' if r['critical'] else 'No'} (threshold: {r['critical_threshold_v']:.1f}V)")
+            print(f"  Critical: {'YES' if r['critical'] else 'No'} (threshold: {r['critical_threshold_pct']}%)")
         except Exception as e:
             print(f"Battery read FAILED: {e}")
 

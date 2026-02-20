@@ -115,14 +115,14 @@ class DTECommands:
         voltage_mv = int(voltage_v * 1000) if isinstance(voltage_v, float) else int(voltage_v)
         soc = int(params.get('BATT_SOC', 0))
         lb_thresh = int(params.get('LB_TRESHOLD', 0))
-        critical_v = params.get('LB_CRITICAL_THRESH', 0)
+        critical_pct = int(params.get('LB_CRITICAL_THRESH', 0))
         return {
             'voltage_mv': voltage_mv,
             'soc': soc,
             'low_battery': soc <= lb_thresh,
-            'critical': (voltage_mv / 1000.0) <= float(critical_v),
+            'critical': soc <= critical_pct,
             'lb_threshold_pct': lb_thresh,
-            'critical_threshold_v': float(critical_v),
+            'critical_threshold_pct': critical_pct,
         }
 
     def dumpd(self, log_type='sensor'):
