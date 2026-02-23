@@ -88,7 +88,7 @@ class DTECommands:
     def _decode_key_values(self, payload):
         m = {}
         for x in payload.strip().split(','):
-            key, value = x.split('=')
+            key, value = x.split('=', 1)
             try:
                 m[DTEParamMap.key_to_param(key)] = DTEParamMap.decode(key, value)
             except Exception as e:
@@ -199,6 +199,48 @@ class DTECommands:
         comp_value = ComponentPower[component.upper()].value
         resp = self._send_and_receive(
             self._encode_command('PWRON', args=[str(comp_value)])
+        )
+        self._decode_response(resp)
+
+    def gnssi(self):
+        """Read GNSS module info (unique_id, sw_version, hw_version).
+        Requires GNSS to be powered on first (PWRON GNSS + ~2s wait)."""
+        resp = self._send_and_receive(
+            self._encode_command('GNSSI'),
+            timeout=30.0
+        )
+        payload = self._decode_response(resp)
+        parts = payload.split(',', 2)
+        return {
+            'unique_id': parts[0],
+            'sw_version': parts[1],
+            'hw_version': parts[2],
+        }
+
+    def gnssa(self):
+        """Check GNSS AssistNow almanac status on device.
+        Returns dict with present, file_size, total_records, valid_records, stale."""
+        resp = self._send_and_receive(
+            self._encode_command('GNSSA'),
+            timeout=10.0
+        )
+        payload = self._decode_response(resp)
+        parts = payload.split(',')
+        return {
+            'present': bool(int(parts[0])),
+            'file_size': int(parts[1]),
+            'total_records': int(parts[2]),
+            'valid_records': int(parts[3]),
+            'stale': bool(int(parts[4])),
+        }
+
+    def rtcw(self, timestamp=None):
+        """Write RTC time. If timestamp is None, uses current UTC time."""
+        import time as _time
+        if timestamp is None:
+            timestamp = int(_time.time())
+        resp = self._send_and_receive(
+            self._encode_command('RTCW', args=[str(timestamp)])
         )
         self._decode_response(resp)
 

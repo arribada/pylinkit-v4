@@ -15,6 +15,7 @@ class DTEParamMap():
     [ "BOOT_COUNTER_MODULO", "PWP03", UINT ],
     [ "WAKEUP_PERIOD", "PWP04", UINT ],
     [ "SHUTDOWN_NTIME_SAT", "PWP05", UINT ],
+    [ "LAST_KNOWN_RTC", "PWP06", UINT ],
     [ "PROFILE_NAME", "IDP11", TEXT ],
     [ "ARGOS_DECID", "IDP12", UINT ],
     [ "ARGOS_HEXID", "IDT06", TEXT ],
@@ -179,6 +180,8 @@ class DTEParamMap():
     [ "UW_MIN_SURFACE_TIME", "UNP25", UINT ],
     [ "LB_CRITICAL_THRESH", "LBP12", UINT ],
     [ "LB_SHUTDOWN_NTIME_SAT", "LBP14", UINT ],
+    [ "GNSS_TOKEN", "GNP31", TEXT ],
+    [ "RTC_CURRENT_TIME", "SYT01", UINT ],
     ]
 
     @staticmethod

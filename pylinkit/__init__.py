@@ -102,6 +102,43 @@ class Tracker:
     def pwron(self, component):
         self._dte.pwron(component)
 
+    def gnssi(self):
+        """Read GNSS module info. Requires GNSS powered on (pwron('gnss') + 2s wait).
+        Returns dict with unique_id, sw_version, hw_version."""
+        return self._dte.gnssi()
+
+    def gnssa(self):
+        """Check GNSS AssistNow almanac status.
+        Returns dict with present, file_size, total_records, valid_records, stale."""
+        return self._dte.gnssa()
+
+    def rtcw(self, timestamp=None):
+        """Write RTC time. If timestamp is None, uses current UTC time."""
+        self._dte.rtcw(timestamp)
+
+    def download_almanac(self, token):
+        """Download AssistNow almanac and send to device.
+        Reads existing chipcode from device, powers on GNSS, reads module info,
+        downloads from u-blox (skipping ZTP if chipcode exists), uploads to device,
+        and saves any new chipcode as GNSS_TOKEN parameter.
+        Returns tuple of (almanac_bytes, chipcode)."""
+        import time
+        from .assistnow import download_almanac
+        from .utils import create_wrapped_file_with_crc32
+        self.sync()
+        existing_chipcode = self.get('GNSS_TOKEN') or None
+        self.pwron('gnss')
+        time.sleep(2)
+        info = self.gnssi()
+        data, chipcode = download_almanac(
+            token, info['unique_id'], info['sw_version'], info['hw_version'],
+            chipcode=existing_chipcode
+        )
+        self.firmware_update(create_wrapped_file_with_crc32(data), 2)
+        if chipcode and chipcode != existing_chipcode:
+            self.set({'GNSS_TOKEN': chipcode})
+        return data, chipcode
+
     def argostx(self, mod='LDA2', tcxo=2):
         self._dte.argostx(mod, tcxo)
 

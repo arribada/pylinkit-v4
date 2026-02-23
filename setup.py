@@ -24,6 +24,7 @@ setup(
     install_requires=[
         'bleak',
         'pyserial',
+        'requests',
     ],
     entry_points={
         'console_scripts': [

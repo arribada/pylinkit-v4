@@ -11,7 +11,7 @@ erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'a
 dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01']
 scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'thermistor', 'pressure']
 scalr_options = ['cdt', 'axl', 'thermistor', 'pressure']
-resetv_options = {'tx_counter': 1, 'rx_counter': 3, 'rx_time': 4}
+resetv_options = {'tx_counter': 1, 'boot_counter': 2, 'rx_counter': 3, 'rx_time': 4}
 modulation_options = {'LDK': 0, 'LDA2': 1, 'VLDA4': 2}
 pwr_options = ['all', 'gnss', 'sensors', 'satellite', 'off']
 
@@ -75,6 +75,12 @@ cmd_group.add_argument('--pwron', type=str, choices=pwr_options, required=False,
                        help='Power on the device (GNSS, SENSORS, SATELLITE)')
 cmd_group.add_argument('--ano', type=argparse.FileType('rb'), required=False,
                        help='GNSS AssistNow Offline filename')
+cmd_group.add_argument('--ano-download', action='store_true', required=False,
+                       help='Download AssistNow almanac from u-blox and send to device')
+cmd_group.add_argument('--ano-token', type=str, required=False,
+                       help='u-blox ZTP token for AssistNow almanac download')
+cmd_group.add_argument('--ano-save', type=str, required=False,
+                       help='Save downloaded almanac to local file')
 
 # === Calibration ===
 cal_group = parser.add_argument_group('Calibration')
@@ -96,6 +102,10 @@ sensor_group.add_argument('--sensr', type=str, choices=sensr_options.keys(), req
                           help='Read sensors (all, battery, pressure, gnss, accel, thermistor)')
 sensor_group.add_argument('--sensr_timeout', type=int, default=60, required=False,
                           help='GNSS timeout in seconds (default: 60)')
+sensor_group.add_argument('--gnssi', action='store_true', required=False,
+                          help='Read GNSS module info (powers on GNSS, reads, powers off)')
+sensor_group.add_argument('--gnssa', action='store_true', required=False,
+                          help='Check GNSS AssistNow almanac status on device')
 
 # === Argos/Satellite ===
 sat_group = parser.add_argument_group('Argos/Satellite')
@@ -128,6 +138,15 @@ smd_group.add_argument('--smdtst', action='store_true', required=False,
 # === SWS (Salt Water Switch) ===
 parser.add_argument('--swsst', action='store_true', required=False,
                     help='Read Salt Water Switch status')
+
+# === RTC ===
+rtc_group = parser.add_argument_group('RTC')
+rtc_group.add_argument('--rtcr', action='store_true', required=False,
+                       help='Read device RTC current time')
+rtc_group.add_argument('--rtcw', action='store_true', required=False,
+                       help='Set device RTC to current UTC time')
+rtc_group.add_argument('--rtcw_timestamp', type=int, required=False,
+                       help='Set device RTC to specific unix timestamp')
 
 # === Misc ===
 parser.add_argument('--debug', action='store_true', required=False, help='Turn on debug trace')
@@ -264,9 +283,19 @@ def main():
     )
 
     if args.parmr:
+        from datetime import datetime, timezone
         dev.sync()
+        params = dev.get()
+        # Format unix timestamps as DD/MM/YYYY HH:MM:SS
+        TIMESTAMP_PARAMS = ('LAST_KNOWN_RTC', 'RTC_CURRENT_TIME')
+        for key in TIMESTAMP_PARAMS:
+            if key in params:
+                ts = int(params[key])
+                if ts > 0:
+                    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                    params[key] = dt.strftime('%d/%m/%Y %H:%M:%S')
         d = {}
-        d['PARAM'] = dev.get()
+        d['PARAM'] = params
         cfg = OrderedRawConfigParser()
         cfg.optionxform = lambda option: option
         cfg.read_dict(dictionary=d)
@@ -306,6 +335,56 @@ def main():
 
     if args.ano:
         dev.firmware_update(create_wrapped_file_with_crc32(args.ano.read()), 2, args.timeout)
+
+    if args.ano_download:
+        if not args.ano_token:
+            parser.error('--ano-token is required for --ano-download')
+        from .assistnow import download_almanac
+        import time
+        token = args.ano_token
+        try:
+            # Read existing chipcode from device
+            dev.sync()
+            existing_chipcode = dev.get('GNSS_TOKEN') or None
+            if existing_chipcode:
+                print(f"Existing chipcode on device: {existing_chipcode}")
+
+            # Power on GNSS and read module info
+            print("Powering on GNSS module...")
+            dev.pwron('gnss')
+            time.sleep(2)
+            info = dev.gnssi()
+            print(f"  Unique ID:  {info['unique_id']}")
+            print(f"  SW Version: {info['sw_version']}")
+            print(f"  HW Version: {info['hw_version']}")
+
+            # Download almanac
+            print("Downloading AssistNow almanac...")
+            almanac_data, chipcode = download_almanac(
+                token, info['unique_id'], info['sw_version'], info['hw_version'],
+                chipcode=existing_chipcode
+            )
+            print(f"  Downloaded {len(almanac_data)} bytes")
+
+            # Save to local file if requested
+            if args.ano_save:
+                with open(args.ano_save, 'wb') as f:
+                    f.write(almanac_data)
+                print(f"Almanac saved to {args.ano_save}")
+
+            # Send to device
+            print("Sending almanac to device...")
+            dev.firmware_update(create_wrapped_file_with_crc32(almanac_data), 2, args.timeout)
+            print("Almanac sent OK")
+
+            # Save chipcode to device (if new or changed)
+            if chipcode and chipcode != existing_chipcode:
+                print(f"Saving GNSS_TOKEN (chipcode={chipcode}) to device...")
+                dev.set({'GNSS_TOKEN': chipcode})
+                print("GNSS_TOKEN saved")
+
+        except Exception as e:
+            print(f"AssistNow download FAILED: {e}")
 
     if args.factw:
         dev.factw()
@@ -435,6 +514,33 @@ def main():
         if mask & 0x10:
             print(f"Thermistor: {r['thermistor_temp']:.1f} C")
 
+    if args.gnssi:
+        try:
+            r = dev.gnssi()
+            print(f"GNSS Module Info:")
+            print(f"  Unique ID:  {r['unique_id']}")
+            print(f"  SW Version: {r['sw_version']}")
+            print(f"  HW Version: {r['hw_version']}")
+        except Exception as e:
+            print(f"GNSSI FAILED: {e}")
+
+    if args.gnssa:
+        try:
+            r = dev.gnssa()
+            print(f"GNSS Almanac Status:")
+            if r['present']:
+                print(f"  File:          Present ({r['file_size']} bytes)")
+                print(f"  Total records: {r['total_records']}")
+                print(f"  Valid records: {r['valid_records']} (matching today)")
+                if r['stale']:
+                    print(f"  Status:        STALE (data >24h old or RTC not set)")
+                else:
+                    print(f"  Status:        Valid")
+            else:
+                print(f"  File:          Absent (no almanac uploaded)")
+        except Exception as e:
+            print(f"GNSSA FAILED: {e}")
+
     if args.argostx:
         mod = args.argosmod or 'LDA2'
         if args.argosmod is not None:
@@ -484,6 +590,30 @@ def main():
             print(f"  Time in state: {r['time_in_state']}s")
         except Exception as e:
             print(f"SWS Status FAILED: {e}")
+
+    if args.rtcr:
+        from datetime import datetime, timezone
+        try:
+            status = dev._dte.statr(['RTC_CURRENT_TIME'])
+            ts = int(status.get('RTC_CURRENT_TIME', 0))
+            if ts > 0:
+                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                print(f"Device RTC: {dt.strftime('%d/%m/%Y %H:%M:%S')} UTC (unix: {ts})")
+            else:
+                print(f"Device RTC: not set (0)")
+        except Exception as e:
+            print(f"RTC read FAILED: {e}")
+
+    if args.rtcw or args.rtcw_timestamp is not None:
+        from datetime import datetime, timezone
+        try:
+            ts = args.rtcw_timestamp
+            dev.rtcw(ts)
+            actual = ts if ts is not None else int(__import__('time').time())
+            dt = datetime.fromtimestamp(actual, tz=timezone.utc)
+            print(f"RTC set to: {dt.isoformat()} (unix: {actual})")
+        except Exception as e:
+            print(f"RTCW FAILED: {e}")
 
     if args.smdfw:
         fw_data = args.smdfw.read()
