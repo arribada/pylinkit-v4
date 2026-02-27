@@ -142,6 +142,10 @@ class Tracker:
     def argostx(self, mod='LDA2', tcxo=2):
         self._dte.argostx(mod, tcxo)
 
+    def loratx(self, size=12):
+        """Send a LoRa test transmission. size: payload bytes (1-222)."""
+        self._dte.loratx(size)
+
     def update_radioconf(self, mod):
         """Update RADIOCONF (IDP14) for given modulation."""
         self._dte.update_radioconf(mod)

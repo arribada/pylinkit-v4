@@ -256,6 +256,14 @@ class DTECommands:
         )
         self._decode_response(resp)
 
+    def loratx(self, size=12):
+        """Send a LoRa test transmission. size: payload bytes (1-222, depends on DR)."""
+        resp = self._send_and_receive(
+            self._encode_command('LORATX', args=[str(size)]),
+            timeout=30.0
+        )
+        self._decode_response(resp)
+
     # RADIOCONF per modulation (16 bytes hex = 32 chars, from Kineis SDK kns_app_conf.h)
     RADIOCONF = {
         'LDK':   '03921fb104b92859209b18abd009de96',

@@ -117,6 +117,11 @@ sat_group.add_argument('--argostcxo', type=int, default=2, required=False, help=
 sat_group.add_argument('--satdp', action='store_true', required=False,
                        help='Start Doppler calibration (periodic TX until reset)')
 
+# === LoRa ===
+lora_group = parser.add_argument_group('LoRa')
+lora_group.add_argument('--loratx', type=int, required=False, metavar='SIZE',
+                        help='Send LoRa test TX (payload size in bytes, 1-222)')
+
 # === SMD ===
 smd_group = parser.add_argument_group('SMD Module')
 smd_group.add_argument('--smdcd', action='store_true', required=False,
@@ -550,6 +555,13 @@ def main():
             print(f"WARNING: --argosmod {args.argosmod} will update RADIOCONF (IDP14) on the SMD module")
             dev.update_radioconf(args.argosmod)
         dev.argostx(mod, args.argostcxo)
+
+    if args.loratx is not None:
+        try:
+            dev.loratx(args.loratx)
+            print(f"LoRa TX sent ({args.loratx} bytes)")
+        except Exception as e:
+            print(f"LoRa TX FAILED: {e}")
 
     if args.satdp:
         try:
