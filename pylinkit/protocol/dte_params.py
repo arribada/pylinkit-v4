@@ -182,6 +182,20 @@ class DTEParamMap():
     [ "LB_SHUTDOWN_NTIME_SAT", "LBP14", UINT ],
     [ "GNSS_TOKEN", "GNP31", TEXT ],
     [ "RTC_CURRENT_TIME", "SYT01", UINT ],
+    [ "LORA_DEVEUI", "LRP01", UPPERCASETEXT ],
+    [ "LORA_APPEUI", "LRP02", UPPERCASETEXT ],
+    [ "LORA_APPKEY", "LRP03", UPPERCASETEXT ],
+    [ "LORA_DEVADDR", "LRP04", UPPERCASETEXT ],
+    [ "LORA_APPSKEY", "LRP05", UPPERCASETEXT ],
+    [ "LORA_NWKSKEY", "LRP06", UPPERCASETEXT ],
+    [ "LORA_NJM", "LRP07", BOOLEAN ],
+    [ "LORA_BAND", "LRP08", UINT ],
+    [ "LORA_CLASS", "LRP09", UINT ],
+    [ "LORA_DR", "LRP10", UINT ],
+    [ "LORA_ADR", "LRP11", BOOLEAN ],
+    [ "LORA_TXP", "LRP12", UINT ],
+    [ "LORA_CFM", "LRP13", BOOLEAN ],
+    [ "LORA_FPORT", "LRP14", UINT ],
     ]
 
     @staticmethod

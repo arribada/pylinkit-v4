@@ -362,6 +362,14 @@ class DTECommands:
         )
         self._decode_response(resp)
 
+    def swstst(self, start=True):
+        """Start or stop SWS test mode. start=True to start, False to stop."""
+        resp = self._send_and_receive(
+            self._encode_command('SWSTST', args=['1' if start else '0'])
+        )
+        payload = self._decode_response(resp)
+        return bool(int(payload))
+
     def swsst(self):
         """Send SWSST command. Returns SWS (Salt Water Switch) status."""
         resp = self._send_and_receive(

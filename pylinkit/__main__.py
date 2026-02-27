@@ -136,8 +136,11 @@ smd_group.add_argument('--smdtst', action='store_true', required=False,
                        help='Run SMD SPI test')
 
 # === SWS (Salt Water Switch) ===
-parser.add_argument('--swsst', action='store_true', required=False,
-                    help='Read Salt Water Switch status')
+sws_group = parser.add_argument_group('SWS (Salt Water Switch)')
+sws_group.add_argument('--swsst', action='store_true', required=False,
+                       help='Read Salt Water Switch status')
+sws_group.add_argument('--swstst', type=str, choices=['start', 'stop'], required=False,
+                       help='Start or stop SWS test mode')
 
 # === RTC ===
 rtc_group = parser.add_argument_group('RTC')
@@ -590,6 +593,14 @@ def main():
             print(f"  Time in state: {r['time_in_state']}s")
         except Exception as e:
             print(f"SWS Status FAILED: {e}")
+
+    if args.swstst:
+        try:
+            start = args.swstst == 'start'
+            running = dev.swstst(start)
+            print(f"SWS Test: {'RUNNING' if running else 'STOPPED'}")
+        except Exception as e:
+            print(f"SWS Test FAILED: {e}")
 
     if args.rtcr:
         from datetime import datetime, timezone

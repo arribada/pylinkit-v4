@@ -170,6 +170,10 @@ class Tracker:
         """Start Doppler calibration. Periodic TX until device reset."""
         self._dte.satdp()
 
+    def swstst(self, start=True):
+        """Start or stop SWS test mode. Returns True if test running."""
+        return self._dte.swstst(start)
+
     def swsst(self):
         """Read SWS (Salt Water Switch) status."""
         return self._dte.swsst()
