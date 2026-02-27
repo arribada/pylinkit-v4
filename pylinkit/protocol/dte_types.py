@@ -262,7 +262,7 @@ class PRESSUREFULLSCALE():
 
 
 class ZONETYPE():
-    allowed = [-1, 'CIRCLE']
+    allowed = ['NONE', 'CIRCLE']
 
     @staticmethod
     def encode(value):
@@ -299,7 +299,7 @@ class GNSSDYNMODEL():
 
 
 class AXLPOWERMODE():
-    allowed = ['LOWPOWER', 'NORMAL']
+    allowed = ['NORMAL', 'LOWPOWER', 'AUTOLOWPOWER']
 
     @staticmethod
     def encode(value):
