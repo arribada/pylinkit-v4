@@ -106,6 +106,8 @@ sensor_group.add_argument('--gnssi', action='store_true', required=False,
                           help='Read GNSS module info (powers on GNSS, reads, powers off)')
 sensor_group.add_argument('--gnssa', action='store_true', required=False,
                           help='Check GNSS AssistNow almanac status on device')
+sensor_group.add_argument('--gnssbr', action='store_true', required=False,
+                          help='Start GNSS UART bridge (USB <-> u-blox M10 at 9600 baud, +++ to exit)')
 
 # === Argos/Satellite ===
 sat_group = parser.add_argument_group('Argos/Satellite')
@@ -121,6 +123,8 @@ sat_group.add_argument('--satdp', action='store_true', required=False,
 lora_group = parser.add_argument_group('LoRa')
 lora_group.add_argument('--loratx', type=int, required=False, metavar='SIZE',
                         help='Send LoRa test TX (payload size in bytes, 1-222)')
+lora_group.add_argument('--lorabr', action='store_true', required=False,
+                        help='Start LoRa UART bridge (USB <-> RAK3172 AT commands, +++ to exit)')
 
 # === SMD ===
 smd_group = parser.add_argument_group('SMD Module')
@@ -549,6 +553,15 @@ def main():
         except Exception as e:
             print(f"GNSSA FAILED: {e}")
 
+    if args.gnssbr:
+        try:
+            print("Starting GNSS UART bridge (USB <-> u-blox M10 at 9600 baud)...")
+            print("Connect u-center to USB port. Send +++ to exit bridge mode.")
+            dev.gnssbr(1)
+            print("GNSS bridge active.")
+        except Exception as e:
+            print(f"GNSSBR FAILED: {e}")
+
     if args.argostx:
         mod = args.argosmod or 'LDA2'
         if args.argosmod is not None:
@@ -562,6 +575,15 @@ def main():
             print(f"LoRa TX sent ({args.loratx} bytes)")
         except Exception as e:
             print(f"LoRa TX FAILED: {e}")
+
+    if args.lorabr:
+        try:
+            print("Starting LoRa UART bridge (USB <-> RAK3172 AT commands)...")
+            print("Type AT commands directly. Send +++ to exit bridge mode.")
+            dev.lorabr(1)
+            print("LoRa bridge active.")
+        except Exception as e:
+            print(f"LORABR FAILED: {e}")
 
     if args.satdp:
         try:
@@ -592,17 +614,25 @@ def main():
 
     if args.swsst:
         try:
+            from .protocol.dte_commands import DTECommands
             r = dev.swsst()
+            method_name = DTECommands.DETECT_METHOD_NAMES.get(r['detect_method'], f"UNKNOWN({r['detect_method']})")
             print(f"SWS Status:")
-            print(f"  Air baseline:  {r['air']} ADC")
-            print(f"  Water baseline: {r['water']} ADC")
-            print(f"  Threshold:     {r['threshold']} ADC")
-            print(f"  Hysteresis:    {r['hysteresis']} ADC")
-            print(f"  Raw ADC:       {r['raw_adc']}")
-            print(f"  Filtered ADC:  {r['filtered_adc']}")
-            print(f"  Calibrated:    {'Yes' if r['calibrated'] else 'No'}")
-            print(f"  State:         {'Underwater' if r['underwater'] else 'Surface'}")
-            print(f"  Time in state: {r['time_in_state']}s")
+            print(f"  Air baseline:    {r['air']} ADC")
+            print(f"  Water baseline:  {r['water']} ADC")
+            print(f"  Threshold:       {r['threshold']} ADC")
+            print(f"  Hysteresis:      {r['hysteresis']} ADC")
+            print(f"  Raw ADC:         {r['raw_adc']}")
+            print(f"  Filtered ADC:    {r['filtered_adc']}")
+            print(f"  Midpoint:        {r['midpoint']} ADC")
+            print(f"  Contrast:        {r['contrast_x10'] / 10:.1f}x")
+            print(f"  Calibrated:      {'Yes' if r['calibrated'] else 'No'}")
+            print(f"  State:           {'Underwater' if r['underwater'] else 'Surface'}")
+            print(f"  Time in state:   {r['time_in_state']}s")
+            print(f"  Detect method:   {method_name}")
+            print(f"  Drop:            {r['drop_percent']}% ({r['drop_absolute']} ADC)")
+            print(f"  Trend count:     {r['trend_count']}")
+            print(f"  Consec samples:  {r['consec_samples']}")
         except Exception as e:
             print(f"SWS Status FAILED: {e}")
 

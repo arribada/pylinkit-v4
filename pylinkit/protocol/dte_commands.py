@@ -378,8 +378,43 @@ class DTECommands:
         payload = self._decode_response(resp)
         return bool(int(payload))
 
+    def gnssbr(self, action=1):
+        """Start or stop GNSS UART bridge.
+        action=1: start bridge (powers on GNSS at 9600 baud, enters passthrough).
+        action=0: stop bridge (GNSS off, return to DTE).
+        In bridge mode, raw bytes are forwarded USB <-> GNSS UART.
+        Send +++ to exit bridge mode."""
+        resp = self._send_and_receive(
+            self._encode_command('GNSSBR', args=[str(action)]),
+            timeout=10.0
+        )
+        self._decode_response(resp)
+
+    def lorabr(self, action=1):
+        """Start or stop LoRa UART bridge.
+        action=1: start bridge (pauses LoRa state machine, enters passthrough).
+        action=0: stop bridge (return to DTE).
+        In bridge mode, raw bytes are forwarded USB <-> RAK3172 UART.
+        Send +++ to exit bridge mode."""
+        resp = self._send_and_receive(
+            self._encode_command('LORABR', args=[str(action)]),
+            timeout=10.0
+        )
+        self._decode_response(resp)
+
+    DETECT_METHOD_NAMES = {
+        0: 'NONE',
+        1: 'THRESHOLD',
+        2: 'RAPID_T1',
+        3: 'RAPID_T2',
+        4: 'RAPID_T3',
+        5: 'RAPID_T4',
+        6: 'TREND',
+        7: 'SAFETY',
+    }
+
     def swsst(self):
-        """Send SWSST command. Returns SWS (Salt Water Switch) status."""
+        """Send SWSST command. Returns SWS (Salt Water Switch) status (16 fields)."""
         resp = self._send_and_receive(
             self._encode_command('SWSST'),
             timeout=10.0
@@ -396,4 +431,11 @@ class DTECommands:
             'calibrated': bool(int(parts[6])),
             'underwater': bool(int(parts[7])),
             'time_in_state': int(parts[8]),
+            'detect_method': int(parts[9]),
+            'drop_percent': int(parts[10]),
+            'drop_absolute': int(parts[11]),
+            'trend_count': int(parts[12]),
+            'consec_samples': int(parts[13]),
+            'contrast_x10': int(parts[14]),
+            'midpoint': int(parts[15]),
         }

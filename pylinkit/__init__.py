@@ -178,6 +178,14 @@ class Tracker:
         """Start or stop SWS test mode. Returns True if test running."""
         return self._dte.swstst(start)
 
+    def gnssbr(self, action=1):
+        """Start/stop GNSS UART bridge. action=1 start, 0 stop. Send +++ to exit."""
+        self._dte.gnssbr(action)
+
+    def lorabr(self, action=1):
+        """Start/stop LoRa UART bridge. action=1 start, 0 stop. Send +++ to exit."""
+        self._dte.lorabr(action)
+
     def swsst(self):
         """Read SWS (Salt Water Switch) status."""
         return self._dte.swsst()

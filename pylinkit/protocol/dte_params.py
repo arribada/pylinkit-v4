@@ -196,6 +196,7 @@ class DTEParamMap():
     [ "LORA_TXP", "LRP12", UINT ],
     [ "LORA_CFM", "LRP13", BOOLEAN ],
     [ "LORA_FPORT", "LRP14", UINT ],
+    [ "LORA_LP_MODE", "LRP15", UINT ],
     ]
 
     @staticmethod
