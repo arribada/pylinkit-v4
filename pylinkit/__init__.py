@@ -33,6 +33,10 @@ class Tracker:
 
         self._map = {}
 
+    def disconnect(self):
+        """Release the transport connection."""
+        self._transport.disconnect()
+
     def sync(self):
         a = self._dte.parmr()
         b = self._dte.statr()
@@ -41,8 +45,12 @@ class Tracker:
     def set(self, param_values):
         self._dte.parmw(param_values=param_values)
 
-    def get(self, attr=None):
-        return self._map[attr] if attr else self._map
+    def get(self, attr=None, default=KeyError):
+        if attr is None:
+            return self._map
+        if default is KeyError:
+            return self._map[attr]
+        return self._map.get(attr, default)
 
     def get_attrs(self):
         return self._map.keys()
@@ -125,8 +133,7 @@ class Tracker:
         import time
         from .assistnow import download_almanac
         from .utils import create_wrapped_file_with_crc32
-        self.sync()
-        existing_chipcode = self.get('GNSS_TOKEN') or None
+        existing_chipcode = self._dte.parmr(['GNSS_TOKEN']).get('GNSS_TOKEN') or None
         self.pwron('gnss')
         time.sleep(2)
         info = self.gnssi()

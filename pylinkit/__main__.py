@@ -59,7 +59,7 @@ cmd_group.add_argument('--parmr', type=argparse.FileType('w'), required=False,
 cmd_group.add_argument('--poll', type=str, required=False,
                        help='Poll a parameter value by key and use --value to denote repetitions')
 cmd_group.add_argument('--rstvw', type=str, choices=resetv_options.keys(), required=False,
-                       help='Reset variable: tx_counter or rx_counter')
+                       help='Reset variable (tx_counter, boot_counter, rx_counter, rx_time)')
 cmd_group.add_argument('--rstbw', action='store_true', required=False, help='Reset beacon')
 cmd_group.add_argument('--factw', action='store_true', required=False,
                        help='Factory reset (WARNING: erases all stored logs and configuration!)')
@@ -91,23 +91,24 @@ cal_group.add_argument('--scalr', type=str, choices=scalr_options, required=Fals
 cal_group.add_argument('--command', type=int, required=False, help='Calibration command number')
 cal_group.add_argument('--value', type=float, default=0, required=False, help='Calibration command value')
 
-# === Battery ===
-parser.add_argument('--battery', action='store_true', required=False,
-                    help='Read battery status (voltage, SOC, low/critical)')
-
 # === Sensor Read ===
 sensr_options = {'all': 0x1F, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04, 'accel': 0x08, 'thermistor': 0x10}
 sensor_group = parser.add_argument_group('Sensor Read')
+sensor_group.add_argument('--battery', action='store_true', required=False,
+                          help='Read battery status (voltage, SOC, low/critical)')
 sensor_group.add_argument('--sensr', type=str, choices=sensr_options.keys(), required=False,
                           help='Read sensors (all, battery, pressure, gnss, accel, thermistor)')
 sensor_group.add_argument('--sensr_timeout', type=int, default=60, required=False,
                           help='GNSS timeout in seconds (default: 60)')
-sensor_group.add_argument('--gnssi', action='store_true', required=False,
-                          help='Read GNSS module info (powers on GNSS, reads, powers off)')
-sensor_group.add_argument('--gnssa', action='store_true', required=False,
-                          help='Check GNSS AssistNow almanac status on device')
-sensor_group.add_argument('--gnssbr', action='store_true', required=False,
-                          help='Start GNSS UART bridge (USB <-> u-blox M10 at 9600 baud, +++ to exit)')
+
+# === GNSS ===
+gnss_group = parser.add_argument_group('GNSS')
+gnss_group.add_argument('--gnssi', action='store_true', required=False,
+                        help='Read GNSS module info (powers on GNSS, reads, powers off)')
+gnss_group.add_argument('--gnssa', action='store_true', required=False,
+                        help='Check GNSS AssistNow almanac status on device')
+gnss_group.add_argument('--gnssbr', action='store_true', required=False,
+                        help='Start GNSS UART bridge (USB <-> u-blox, releases port for Tera Term/u-center)')
 
 # === Argos/Satellite ===
 sat_group = parser.add_argument_group('Argos/Satellite')
@@ -351,50 +352,14 @@ def main():
     if args.ano_download:
         if not args.ano_token:
             parser.error('--ano-token is required for --ano-download')
-        from .assistnow import download_almanac
-        import time
-        token = args.ano_token
         try:
-            # Read existing chipcode from device
-            dev.sync()
-            existing_chipcode = dev.get('GNSS_TOKEN') or None
-            if existing_chipcode:
-                print(f"Existing chipcode on device: {existing_chipcode}")
-
-            # Power on GNSS and read module info
-            print("Powering on GNSS module...")
-            dev.pwron('gnss')
-            time.sleep(2)
-            info = dev.gnssi()
-            print(f"  Unique ID:  {info['unique_id']}")
-            print(f"  SW Version: {info['sw_version']}")
-            print(f"  HW Version: {info['hw_version']}")
-
-            # Download almanac
             print("Downloading AssistNow almanac...")
-            almanac_data, chipcode = download_almanac(
-                token, info['unique_id'], info['sw_version'], info['hw_version'],
-                chipcode=existing_chipcode
-            )
-            print(f"  Downloaded {len(almanac_data)} bytes")
-
-            # Save to local file if requested
+            almanac_data, chipcode = dev.download_almanac(args.ano_token)
+            print(f"  Downloaded {len(almanac_data)} bytes, chipcode={chipcode}")
             if args.ano_save:
                 with open(args.ano_save, 'wb') as f:
                     f.write(almanac_data)
                 print(f"Almanac saved to {args.ano_save}")
-
-            # Send to device
-            print("Sending almanac to device...")
-            dev.firmware_update(create_wrapped_file_with_crc32(almanac_data), 2, args.timeout)
-            print("Almanac sent OK")
-
-            # Save chipcode to device (if new or changed)
-            if chipcode and chipcode != existing_chipcode:
-                print(f"Saving GNSS_TOKEN (chipcode={chipcode}) to device...")
-                dev.set({'GNSS_TOKEN': chipcode})
-                print("GNSS_TOKEN saved")
-
         except Exception as e:
             print(f"AssistNow download FAILED: {e}")
 
@@ -553,14 +518,20 @@ def main():
         except Exception as e:
             print(f"GNSSA FAILED: {e}")
 
-    if args.gnssbr:
+    def start_bridge(name, start_fn, connect_hint):
         try:
-            print("Starting GNSS UART bridge (USB <-> u-blox M10 at 9600 baud)...")
-            print("Connect u-center to USB port. Send +++ to exit bridge mode.")
-            dev.gnssbr(1)
-            print("GNSS bridge active.")
+            print(f"Starting {name} bridge...")
+            start_fn()
+            dev.disconnect()
+            print(f"{name} bridge active on {address}. Port released.")
+            print(f"Connect {connect_hint} to {address}. Send +++ to exit bridge mode.")
+            sys.exit(0)
         except Exception as e:
-            print(f"GNSSBR FAILED: {e}")
+            print(f"{name} bridge FAILED: {e}")
+
+    if args.gnssbr:
+        start_bridge("GNSS UART (USB <-> u-blox M10 at 9600 baud)",
+                      lambda: dev.gnssbr(1), "Tera Term / u-center")
 
     if args.argostx:
         mod = args.argosmod or 'LDA2'
@@ -577,13 +548,8 @@ def main():
             print(f"LoRa TX FAILED: {e}")
 
     if args.lorabr:
-        try:
-            print("Starting LoRa UART bridge (USB <-> RAK3172 AT commands)...")
-            print("Type AT commands directly. Send +++ to exit bridge mode.")
-            dev.lorabr(1)
-            print("LoRa bridge active.")
-        except Exception as e:
-            print(f"LORABR FAILED: {e}")
+        start_bridge("LoRa UART (USB <-> RAK3172 AT commands)",
+                      lambda: dev.lorabr(1), "Tera Term")
 
     if args.satdp:
         try:

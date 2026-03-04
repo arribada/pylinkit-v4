@@ -9,8 +9,11 @@ import logging
 from pathlib import Path
 
 import requests
+from requests.exceptions import RequestException
 
 logger = logging.getLogger(__name__)
+
+HTTP_TIMEOUT = 30
 
 CACHE_DIR = Path("~/.pylinkit").expanduser()
 CACHE_FILE = CACHE_DIR / "assistnow_cache.json"
@@ -75,7 +78,7 @@ def _download_with_chipcode(chipcode: str, service_url: str = FALLBACK_URL) -> b
         "chipcode": chipcode,
         "gnss": "gps,glo,gal",
         "data": "uporb_1,ualm",
-    })
+    }, timeout=HTTP_TIMEOUT)
     result.raise_for_status()
     logger.info("Almanac downloaded: %d bytes", len(result.content))
     return result.content
@@ -89,7 +92,7 @@ def _download_fallback(token: str) -> bytes:
         "gnss": "gps+glo+gal",
         "period": 4,
         "resolution": 1,
-    })
+    }, timeout=HTTP_TIMEOUT)
     resp.raise_for_status()
     logger.info("Fallback almanac downloaded: %d bytes", len(resp.content))
     return resp.content
@@ -112,7 +115,7 @@ def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: st
     if chipcode:
         try:
             return _download_with_chipcode(chipcode), chipcode
-        except Exception as e:
+        except RequestException as e:
             logger.warning("Download with existing chipcode failed: %s", e)
 
     # 2. Try from local cache
@@ -121,12 +124,13 @@ def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: st
 
     if cache_key in cache:
         cached_chipcode = cache[cache_key]["chipcode"]
-        service_url = cache[cache_key]["serviceUrl"]
-        logger.info("Trying cached chipcode %s", cached_chipcode)
-        try:
-            return _download_with_chipcode(cached_chipcode, service_url), cached_chipcode
-        except Exception as e:
-            logger.warning("Download with cached chipcode failed: %s", e)
+        if cached_chipcode != chipcode:  # skip if same as already-tried chipcode
+            service_url = cache[cache_key]["serviceUrl"]
+            logger.info("Trying cached chipcode %s", cached_chipcode)
+            try:
+                return _download_with_chipcode(cached_chipcode, service_url), cached_chipcode
+            except RequestException as e:
+                logger.warning("Download with cached chipcode failed: %s", e)
 
     # 3. ZTP registration
     uniq_id_hex = _build_ubx_sec_uniqid(unique_id)
@@ -140,7 +144,7 @@ def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: st
                 "UBX-SEC-UNIQID": uniq_id_hex,
                 "UBX-MON-VER": mon_ver_hex,
             }
-        })
+        }, timeout=HTTP_TIMEOUT)
 
         if resp.status_code == 403:
             logger.warning("ZTP returned 403, using fallback API")
@@ -158,10 +162,10 @@ def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: st
         # 4. Download with new chipcode
         try:
             return _download_with_chipcode(new_chipcode, service_url), new_chipcode
-        except Exception as e:
+        except RequestException as e:
             logger.warning("Download with new chipcode failed: %s, using fallback", e)
             return _download_fallback(token), new_chipcode
 
-    except Exception as e:
+    except RequestException as e:
         logger.warning("ZTP registration failed: %s, using fallback", e)
         return _download_fallback(token), None
