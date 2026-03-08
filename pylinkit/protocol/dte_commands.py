@@ -378,6 +378,48 @@ class DTECommands:
         payload = self._decode_response(resp)
         return bool(int(payload))
 
+    def _wait_for_push(self, timeout=5.0):
+        """Wait for a single unsolicited pushed frame. Returns raw response string or None on timeout."""
+        self._protocol = DTEProtocol()
+        self._terminate = False
+        self._event.clear()
+        while True:
+            is_set = self._event.wait(timeout)
+            self._event.clear()
+            if not is_set:
+                return None
+            if self._terminate:
+                break
+        return self._protocol.data()
+
+    def swstst_stream(self, callback):
+        """Start SWS test mode and stream pushed SWSST samples to callback.
+
+        callback receives a dict with the same keys as swsst().
+        Blocks until KeyboardInterrupt, then stops test mode.
+        """
+        self.swstst(start=True)
+        try:
+            while True:
+                resp = self._wait_for_push(timeout=5.0)
+                if resp is None:
+                    continue
+                try:
+                    payload = self._decode_response(resp)
+                    parts = payload.split(',')
+                    if len(parts) < 11:
+                        continue
+                    callback(self._parse_swsst(parts))
+                except Exception as e:
+                    logger.debug('Failed to parse pushed SWSST frame: %s', e)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            try:
+                self.swstst(start=False)
+            except Exception:
+                pass
+
     def gnssbr(self, action=1):
         """Start or stop GNSS UART bridge.
         action=1: start bridge (powers on GNSS at 9600 baud, enters passthrough).
@@ -402,25 +444,18 @@ class DTECommands:
         )
         self._decode_response(resp)
 
-    DETECT_METHOD_NAMES = {
+    SURFACE_LEVEL_NAMES = {
         0: 'NONE',
-        1: 'THRESHOLD',
-        2: 'RAPID_T1',
-        3: 'RAPID_T2',
-        4: 'RAPID_T3',
-        5: 'RAPID_T4',
-        6: 'TREND',
-        7: 'SAFETY',
+        1: 'L1_DROP_25',
+        2: 'L2_CONSEC_5',
+        3: 'L3_TREND_MA3',
+        4: 'L4_DROP_BASELINE',
+        5: 'L5_CUMUL_BACKUP',
     }
 
-    def swsst(self):
-        """Send SWSST command. Returns SWS (Salt Water Switch) status (16 fields)."""
-        resp = self._send_and_receive(
-            self._encode_command('SWSST'),
-            timeout=10.0
-        )
-        payload = self._decode_response(resp)
-        parts = payload.split(',')
+    @staticmethod
+    def _parse_swsst(parts):
+        """Parse SWSST fields (11 fields) into a dict."""
         return {
             'air': int(parts[0]),
             'water': int(parts[1]),
@@ -431,11 +466,16 @@ class DTECommands:
             'calibrated': bool(int(parts[6])),
             'underwater': bool(int(parts[7])),
             'time_in_state': int(parts[8]),
-            'detect_method': int(parts[9]),
-            'drop_percent': int(parts[10]),
-            'drop_absolute': int(parts[11]),
-            'trend_count': int(parts[12]),
-            'consec_samples': int(parts[13]),
-            'contrast_x10': int(parts[14]),
-            'midpoint': int(parts[15]),
+            'surface_level': int(parts[9]),
+            'contrast_x10': int(parts[10]),
         }
+
+    def swsst(self):
+        """Send SWSST command. Returns SWS (Salt Water Switch) status (11 fields)."""
+        resp = self._send_and_receive(
+            self._encode_command('SWSST'),
+            timeout=10.0
+        )
+        payload = self._decode_response(resp)
+        parts = payload.split(',')
+        return self._parse_swsst(parts)

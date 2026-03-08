@@ -185,6 +185,11 @@ class Tracker:
         """Start or stop SWS test mode. Returns True if test running."""
         return self._dte.swstst(start)
 
+    def swstst_stream(self, callback):
+        """Start SWS test mode and stream pushed samples to callback.
+        Blocks until KeyboardInterrupt, then stops test mode."""
+        self._dte.swstst_stream(callback)
+
     def gnssbr(self, action=1):
         """Start/stop GNSS UART bridge. action=1 start, 0 stop. Send +++ to exit."""
         self._dte.gnssbr(action)

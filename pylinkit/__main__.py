@@ -582,7 +582,15 @@ def main():
         try:
             from .protocol.dte_commands import DTECommands
             r = dev.swsst()
-            method_name = DTECommands.DETECT_METHOD_NAMES.get(r['detect_method'], f"UNKNOWN({r['detect_method']})")
+            level = r['surface_level']
+            level_name = DTECommands.SURFACE_LEVEL_NAMES.get(level, f"UNKNOWN({level})")
+            contrast = r['contrast_x10'] / 10
+            if r['contrast_x10'] >= 80:
+                bio_status = 'Clean'
+            elif r['contrast_x10'] >= 40:
+                bio_status = 'Moderate biofouling'
+            else:
+                bio_status = 'Severe biofouling'
             print(f"SWS Status:")
             print(f"  Air baseline:    {r['air']} ADC")
             print(f"  Water baseline:  {r['water']} ADC")
@@ -590,23 +598,72 @@ def main():
             print(f"  Hysteresis:      {r['hysteresis']} ADC")
             print(f"  Raw ADC:         {r['raw_adc']}")
             print(f"  Filtered ADC:    {r['filtered_adc']}")
-            print(f"  Midpoint:        {r['midpoint']} ADC")
-            print(f"  Contrast:        {r['contrast_x10'] / 10:.1f}x")
+            print(f"  Contrast:        {contrast:.1f}x ({bio_status})")
             print(f"  Calibrated:      {'Yes' if r['calibrated'] else 'No'}")
             print(f"  State:           {'Underwater' if r['underwater'] else 'Surface'}")
             print(f"  Time in state:   {r['time_in_state']}s")
-            print(f"  Detect method:   {method_name}")
-            print(f"  Drop:            {r['drop_percent']}% ({r['drop_absolute']} ADC)")
-            print(f"  Trend count:     {r['trend_count']}")
-            print(f"  Consec samples:  {r['consec_samples']}")
+            print(f"  Surface level:   {level_name}")
         except Exception as e:
             print(f"SWS Status FAILED: {e}")
 
     if args.swstst:
         try:
-            start = args.swstst == 'start'
-            running = dev.swstst(start)
-            print(f"SWS Test: {'RUNNING' if running else 'STOPPED'}")
+            if args.swstst == 'start':
+                # ANSI color codes for surface level indicators
+                _LEVEL_COLORS = {
+                    0: '\033[0m',       # reset (no detection)
+                    1: '\033[92m',      # bright green  - L1 instant drop 25%
+                    2: '\033[32m',      # green         - L2 2 consec drops 5%
+                    3: '\033[93m',      # yellow        - L3 trend MA3
+                    4: '\033[33m',      # orange        - L4 drop vs baseline
+                    5: '\033[91m',      # red           - L5 cumul backup
+                }
+                _RESET = '\033[0m'
+                sample_count = [0]
+                prev_level = [0]
+
+                def _on_swsst_sample(r):
+                    sample_count[0] += 1
+                    state = 'Underwater' if r['underwater'] else 'Surface'
+                    level = r['surface_level']
+                    contrast = r['contrast_x10'] / 10
+
+                    # Surface level with color
+                    if level > 0:
+                        color = _LEVEL_COLORS.get(level, _RESET)
+                        level_str = f"{color}L{level}{_RESET}"
+                    else:
+                        level_str = '--'
+
+                    # Contrast quality indicator
+                    if r['contrast_x10'] >= 80:
+                        ctr_str = f"{contrast:.1f}x"
+                    elif r['contrast_x10'] >= 40:
+                        ctr_str = f"\033[93m{contrast:.1f}x{_RESET}"
+                    else:
+                        ctr_str = f"\033[91m{contrast:.1f}x{_RESET}"
+
+                    # Event marker when surface_level transitions 0 -> N
+                    event = ''
+                    if level > 0 and prev_level[0] == 0:
+                        color = _LEVEL_COLORS.get(level, _RESET)
+                        event = f"  {color}<<< L{level} DETECTED >>>{_RESET}"
+                    prev_level[0] = level
+
+                    print(f"[{sample_count[0]:>4}] raw={r['raw_adc']:>5}  filt={r['filtered_adc']:>5}  "
+                          f"air={r['air']:>5}  water={r['water']:>5}  "
+                          f"thr={r['threshold']:>5}  hyst={r['hysteresis']:>5}  "
+                          f"cal={'Y' if r['calibrated'] else 'N'}  {state:<10}  "
+                          f"t={r['time_in_state']}s  lvl={level_str}  ctr={ctr_str}"
+                          f"{event}")
+
+                print("SWS Test: STREAMING (Ctrl+C to stop)")
+                print("-" * 110)
+                dev.swstst_stream(_on_swsst_sample)
+                print("SWS Test: STOPPED")
+            else:
+                running = dev.swstst(start=False)
+                print(f"SWS Test: {'RUNNING' if running else 'STOPPED'}")
         except Exception as e:
             print(f"SWS Test FAILED: {e}")
 
