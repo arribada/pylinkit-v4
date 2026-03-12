@@ -4,57 +4,342 @@ Installation
 python setup.py install
 
 
+Transport
+=========
+
+pylinkit supporte trois modes de transport pour communiquer avec le tracker :
+
+- **BLE** (Bluetooth Low Energy) : mode par defaut, utilise le Nordic UART Service (NUS)
+- **USB** : lecture des logs en temps reel via port serie CDC (115200 baud)
+- **UART** : lecture des logs en temps reel via port serie
+
+Le transport se selectionne avec l'option ``--transport [ble|usb|uart]``.
+
+
 Usage
 =====
 
-To scan for beacons:
+Scan & decouverte
+-----------------
 
-pylinkit --scan
+Pour scanner les beacons BLE :
 
-To read configuration parameters into a file:
+.. code-block:: bash
 
-pylinkit --device xx:xx:xx:xx:xx:xx --parmr params.txt
+    pylinkit --scan
 
-To write configuration parameters from a file:
+Pour lister les ports serie disponibles :
 
-pylinkit --device xx:xx:xx:xx:xx:xx --parmw params.txt
+.. code-block:: bash
 
-To send pass prediction from a JSON file:
-
-pylinkit --device xx:xx:xx:xx:xx:xx --paspw paspw.json
-
-To download sensor log data:
-
-pylinkit --device xx:xx:xx:xx:xx:xx --dump_sensor gpslog.json [--format csv]
-
-To download system log data:
-
-pylinkit --device xx:xx:xx:xx:xx:xx --dump_system syslog.json [--format csv]
-
-To perform a factory reset (will erase stored configuration, paspw, zone and log files):
-
-pylinkit --device xx:xx:xx:xx:xx:xx --factw
-
-To perform a software reset:
-
-pylinkit --device xx:xx:xx:xx:xx:xx --rstbw
-
-To reset the TX_COUNTER to zero:
-
-pylinkit --device xx:xx:xx:xx:xx:xx --rstvw
-
-To perform a firmware update:
-
-pylinkit --device xx:xx:xx:xx:xx:xx --fw firmware.img
-
-WARNING: the operation make take 5-6 minutes.  It is advised not to
-run this command if the battery is low and to ensure the device is not reset during
-operation.  Also note that the firmware update does not take effect until the
-next reboot of the device upon successful completion of the above command.
+    pylinkit --list-ports
 
 
-Debug trace may also optionally be enabled with the --debug flag in conjunction with any of
-the above options.
+Configuration
+-------------
+
+Pour lire les parametres de configuration dans un fichier :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --parmr params.txt
+
+Pour ecrire les parametres de configuration depuis un fichier :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --parmw params.txt
+
+Pour interroger un parametre specifique :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --poll BATT_VOLTAGE --value 1
+
+
+Logs & monitoring
+-----------------
+
+Pour visualiser les logs en temps reel (BLE, USB ou UART) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --log
+    pylinkit --transport usb --port COM3 --log
+    pylinkit --transport uart --port COM3 --log
+
+L'option ``--no-color`` desactive la coloration ANSI.
+
+Pour telecharger les logs (sensor ou systeme) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --dumpd gpslog.json --dumpd_type gnss
+    pylinkit --device xx:xx:xx:xx:xx:xx --dumpd syslog.json --dumpd_type system [--format csv]
+
+Types de logs disponibles : ``system``, ``gnss``, ``als``, ``ph``, ``rtd``, ``cdt``,
+``cam``, ``axl``, ``pressure``, ``thermistor``, ``tsys01``.
+
+Pour effacer les logs :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --erase all
+    pylinkit --device xx:xx:xx:xx:xx:xx --erase sensor
+    pylinkit --device xx:xx:xx:xx:xx:xx --erase system
+
+
+Controle du device
+------------------
+
+Pour effectuer un reset logiciel :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --rstbw
+
+Pour effectuer un reset usine (efface config, logs, paspw, zones) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --factw
+
+Pour reinitialiser les compteurs :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --rstvw tx_counter
+    pylinkit --device xx:xx:xx:xx:xx:xx --rstvw boot_counter
+    pylinkit --device xx:xx:xx:xx:xx:xx --rstvw rx_counter
+    pylinkit --device xx:xx:xx:xx:xx:xx --rstvw rx_time
+
+Pour controler l'alimentation des modules :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --pwron all
+    pylinkit --device xx:xx:xx:xx:xx:xx --pwron gnss
+    pylinkit --device xx:xx:xx:xx:xx:xx --pwron sensors
+    pylinkit --device xx:xx:xx:xx:xx:xx --pwron satellite
+    pylinkit --device xx:xx:xx:xx:xx:xx --pwron off
+
+
+Batterie & capteurs
+-------------------
+
+Pour lire la batterie :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --battery
+
+Pour lire un capteur :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --sensr battery
+    pylinkit --device xx:xx:xx:xx:xx:xx --sensr pressure
+    pylinkit --device xx:xx:xx:xx:xx:xx --sensr gnss --sensr_timeout 120
+    pylinkit --device xx:xx:xx:xx:xx:xx --sensr thermistor
+    pylinkit --device xx:xx:xx:xx:xx:xx --sensr accel
+    pylinkit --device xx:xx:xx:xx:xx:xx --sensr all
+
+
+GNSS
+----
+
+Pour lire les informations du module GNSS :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --gnssi
+
+Pour verifier le statut de l'almanach AssistNow :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --gnssa
+
+Pour envoyer un almanach AssistNow offline :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --ano almanac.bin
+
+Pour telecharger et envoyer l'almanach depuis u-blox :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --ano-download --ano-token <ZTP_TOKEN>
+    pylinkit --device xx:xx:xx:xx:xx:xx --ano-download --ano-token <ZTP_TOKEN> --ano-save almanac.bin
+
+Pour demarrer le bridge GNSS UART (acces direct au u-blox M10, quitter avec ``+++``) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --gnssbr
+
+
+Argos / Satellite
+-----------------
+
+Pour envoyer un paquet TX de test Argos :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --argostx
+
+Pour changer la modulation Kineis :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --argosmod LDK
+    pylinkit --device xx:xx:xx:xx:xx:xx --argosmod LDA2
+    pylinkit --device xx:xx:xx:xx:xx:xx --argosmod VLDA4
+
+Pour configurer le temps de chauffe TCXO :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --argostcxo 5
+
+Pour demarrer la calibration Doppler (TX periodique jusqu'au reset) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --satdp
+
+
+SMD (module satellite Kineis)
+-----------------------------
+
+Pour envoyer les credentials SMD :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --smdcd --smdid <ID> --smdaddr <ADDR> --smdseckey <KEY> --smdradioconf <CONF>
+
+Pour la mise a jour firmware SMD :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --smdfw firmware.bin --smdfw_mode uart
+
+Pour controler le DFU SMD :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --smddfu enter
+    pylinkit --device xx:xx:xx:xx:xx:xx --smddfu status
+    pylinkit --device xx:xx:xx:xx:xx:xx --smddfu version
+    pylinkit --device xx:xx:xx:xx:xx:xx --smddfu exit
+
+Pour lancer un test SPI SMD :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --smdtst
+
+
+LoRa
+----
+
+Pour envoyer une transmission LoRa de test :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --loratx 10
+
+Pour demarrer le bridge LoRa UART (acces direct aux commandes AT du RAK3172, quitter avec ``+++``) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --lorabr
+
+
+Salt Water Switch (SWS)
+------------------------
+
+Pour lire le statut du SWS :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --swsst
+
+Pour demarrer/arreter le mode test SWS (streaming temps reel avec indicateurs de surface) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --swstst start
+    pylinkit --device xx:xx:xx:xx:xx:xx --swstst stop
+
+
+RTC (horloge temps reel)
+-------------------------
+
+Pour lire l'heure du device :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --rtcr
+
+Pour synchroniser l'heure avec l'UTC actuel :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --rtcw
+
+Pour definir un timestamp specifique :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --rtcw_timestamp 1678900000
+
+
+Calibration capteurs
+--------------------
+
+Pour lire la calibration d'un capteur :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --scalr pressure
+
+Pour ecrire une calibration :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --scalw pressure --command 1 --value 1.5
+
+
+Mise a jour firmware (OTA)
+--------------------------
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --fw firmware.img
+
+WARNING: l'operation peut prendre 5-6 minutes. Il est conseille de ne pas
+lancer cette commande si la batterie est faible et de ne pas reset le device
+pendant l'operation. La mise a jour ne prend effet qu'au prochain redemarrage.
+
+
+Pass prediction
+---------------
+
+Pour envoyer des predictions de passage depuis un fichier JSON :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --paspw paspw.json
+
+
+Options generales
+-----------------
+
+``--debug`` active les traces de debug pour toute commande.
+
+``--no-color`` desactive la coloration ANSI dans les logs.
 
 
 Logging file format
