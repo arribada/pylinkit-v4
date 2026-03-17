@@ -7,8 +7,8 @@ from .transport import TransportType, create_transport
 from .transport.serial import SerialTransport
 from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, create_wrapped_file_with_crc32, create_smd_wrapped_file, stm32_crc32
 
-erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01']
-dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01']
+erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws']
+dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws']
 scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'thermistor', 'pressure']
 scalr_options = ['cdt', 'axl', 'thermistor', 'pressure']
 resetv_options = {'tx_counter': 1, 'boot_counter': 2, 'rx_counter': 3, 'rx_time': 4}
@@ -587,7 +587,7 @@ def main():
             contrast = r['contrast_x10'] / 10
             if r['contrast_x10'] >= 80:
                 bio_status = 'Clean'
-            elif r['contrast_x10'] >= 40:
+            elif r['contrast_x10'] >= 30:
                 bio_status = 'Moderate biofouling'
             else:
                 bio_status = 'Severe biofouling'
@@ -599,6 +599,8 @@ def main():
             print(f"  Raw ADC:         {r['raw_adc']}")
             print(f"  Filtered ADC:    {r['filtered_adc']}")
             print(f"  Contrast:        {contrast:.1f}x ({bio_status})")
+            print(f"  Observed peak:   {r['observed_peak']} ADC")
+            print(f"  Sample delay:    {r['sample_delay_us']} us")
             print(f"  Calibrated:      {'Yes' if r['calibrated'] else 'No'}")
             print(f"  State:           {'Underwater' if r['underwater'] else 'Surface'}")
             print(f"  Time in state:   {r['time_in_state']}s")
@@ -638,7 +640,7 @@ def main():
                     # Contrast quality indicator
                     if r['contrast_x10'] >= 80:
                         ctr_str = f"{contrast:.1f}x"
-                    elif r['contrast_x10'] >= 40:
+                    elif r['contrast_x10'] >= 30:
                         ctr_str = f"\033[93m{contrast:.1f}x{_RESET}"
                     else:
                         ctr_str = f"\033[91m{contrast:.1f}x{_RESET}"
@@ -654,7 +656,8 @@ def main():
                           f"air={r['air']:>5}  water={r['water']:>5}  "
                           f"thr={r['threshold']:>5}  hyst={r['hysteresis']:>5}  "
                           f"cal={'Y' if r['calibrated'] else 'N'}  {state:<10}  "
-                          f"t={r['time_in_state']}s  lvl={level_str}  ctr={ctr_str}"
+                          f"t={r['time_in_state']}s  lvl={level_str}  ctr={ctr_str}  "
+                          f"peak={r['observed_peak']:>5}  delay={r['sample_delay_us']}us"
                           f"{event}")
 
                 print("SWS Test: STREAMING (Ctrl+C to stop)")

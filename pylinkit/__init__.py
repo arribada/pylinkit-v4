@@ -82,6 +82,10 @@ class Tracker:
         """Dump pressure logs as CSV string: log_datetime,pressure,temperature,altitude"""
         return self._dte.pressure_log_to_csv()
 
+    def sws_log_to_csv(self):
+        """Dump SWS logs as CSV string: log_datetime,raw_adc,filtered_adc,...,sample_delay_us"""
+        return self._dte.sws_log_to_csv()
+
     def erase(self, log_type):
         return self._dte.erase(log_type)
 

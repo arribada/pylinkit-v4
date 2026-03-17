@@ -14,11 +14,12 @@ class BaseLogDType(IntEnum):
     PRESSURE = 8
     THERMISTOR = 9
     TSYS01 = 10
+    SWS_LOG = 11
 
     @classmethod
     def from_name(cls, name: str):
         """Resolve name with backward-compatible aliases."""
-        aliases = {'system': 'INTERNAL', 'sensor': 'GNSS'}
+        aliases = {'system': 'INTERNAL', 'sensor': 'GNSS', 'sws': 'SWS_LOG'}
         lookup = aliases.get(name.lower(), name.upper())
         return cls[lookup]
 
@@ -37,11 +38,12 @@ class BaseEraseType(IntEnum):
     PRESSURE = 10
     THERMISTOR = 11
     TSYS01 = 12
+    SWS_LOG = 13
 
     @classmethod
     def from_name(cls, name: str):
         """Resolve name with backward-compatible aliases."""
-        aliases = {'sensor': 'GNSS'}
+        aliases = {'sensor': 'GNSS', 'sws': 'SWS_LOG'}
         lookup = aliases.get(name.lower(), name.upper())
         return cls[lookup]
 

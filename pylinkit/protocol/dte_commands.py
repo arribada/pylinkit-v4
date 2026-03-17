@@ -151,6 +151,11 @@ class DTECommands:
         Header: log_datetime,pressure,temperature,altitude"""
         return self.dumpd('pressure').decode('ascii', errors='ignore')
 
+    def sws_log_to_csv(self):
+        """Dump SWS logs and return CSV string.
+        Header: log_datetime,raw_adc,filtered_adc,threshold,hysteresis,air,water,calibrated,underwater,time_in_state,surface_level,contrast_x10,observed_peak,sample_delay_us"""
+        return self.dumpd('sws').decode('ascii', errors='ignore')
+
     def paspw(self, json_file_data):
         resp = self._send_and_receive(
             self._encode_command('PASPW', args=[PASPW.encode(json_file_data)]),
@@ -407,7 +412,7 @@ class DTECommands:
                 try:
                     payload = self._decode_response(resp)
                     parts = payload.split(',')
-                    if len(parts) < 11:
+                    if len(parts) < 13:
                         continue
                     callback(self._parse_swsst(parts))
                 except Exception as e:
@@ -455,7 +460,7 @@ class DTECommands:
 
     @staticmethod
     def _parse_swsst(parts):
-        """Parse SWSST fields (11 fields) into a dict."""
+        """Parse SWSST fields (13 fields) into a dict."""
         return {
             'air': int(parts[0]),
             'water': int(parts[1]),
@@ -468,10 +473,12 @@ class DTECommands:
             'time_in_state': int(parts[8]),
             'surface_level': int(parts[9]),
             'contrast_x10': int(parts[10]),
+            'observed_peak': int(parts[11]),
+            'sample_delay_us': int(parts[12]),
         }
 
     def swsst(self):
-        """Send SWSST command. Returns SWS (Salt Water Switch) status (11 fields)."""
+        """Send SWSST command. Returns SWS (Salt Water Switch) status (13 fields)."""
         resp = self._send_and_receive(
             self._encode_command('SWSST'),
             timeout=10.0
