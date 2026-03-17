@@ -322,7 +322,17 @@ def main():
         cfg = OrderedRawConfigParser()
         cfg.optionxform = lambda option: option
         cfg.read_string(args.parmw.read())
-        dev.set(cfg['PARAM'])
+        try:
+            result = dev.set(cfg['PARAM'])
+            ok = [k for k, v in result.items() if v]
+            nok = [k for k, v in result.items() if not v]
+            if ok:
+                print(f"Parameters written OK: {', '.join(ok)}")
+            if nok:
+                print(f"Parameters REJECTED (unknown key or invalid value): {', '.join(nok)}")
+                print("  Note: some parameters may not exist depending on firmware build configuration")
+        except Exception as e:
+            print(f"PARMW FAILED: {e}")
 
     if args.paspw:
         dev.paspw(args.paspw.read())

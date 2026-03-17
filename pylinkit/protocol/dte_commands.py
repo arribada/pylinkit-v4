@@ -10,6 +10,14 @@ from ..enums import BaseLogDType, BaseEraseType, BaseSensorCalType, ComponentPow
 logger = logging.getLogger(__name__)
 
 
+class ParmwPartialError(Exception):
+    """Raised when PARMW partially succeeds: some params written, some rejected."""
+    def __init__(self, cmd, rejected_keys):
+        self.cmd = cmd
+        self.rejected_keys = rejected_keys
+        super().__init__(f'{cmd} - partial write, rejected keys: {", ".join(rejected_keys)}')
+
+
 class DTECommands:
     """DTE command layer. Encodes commands, sends them via a DataTransport,
     receives responses using DTEProtocol framing.
@@ -67,19 +75,25 @@ class DTECommands:
 
     def _decode_response(self, resp):
         success_regexp = r'^\$O;(?P<cmd>[A-Z]+)#(?P<len>[0-9a-fA-F]+);(?P<payload>.*)\r$'
-        fail_regexp = r'^\$N;(?P<cmd>[A-Z]+)#(?P<len>[0-9a-fA-F]+);(?P<error>[0-9]+)\r$'
+        fail_regexp = r'^\$N;(?P<cmd>[A-Z]+)#(?P<len>[0-9a-fA-F]+);(?P<payload>.+)\r$'
         success = re.match(success_regexp, resp)
         if success:
             return success.group('payload')
         fail = re.match(fail_regexp, resp)
         if fail:
             cmd = fail.group('cmd')
-            error_code = int(fail.group('error'))
-            try:
-                err = DTEError(error_code)
-                raise Exception(f'{cmd} - error {error_code}: {err.message}')
-            except ValueError:
-                raise Exception(f'{cmd} - error {error_code}: Unknown error')
+            payload = fail.group('payload')
+            # Pure numeric payload = global error code
+            if payload.isdigit():
+                error_code = int(payload)
+                try:
+                    err = DTEError(error_code)
+                    raise Exception(f'{cmd} - error {error_code}: {err.message}')
+                except ValueError:
+                    raise Exception(f'{cmd} - error {error_code}: Unknown error')
+            # Non-numeric payload = partial reject (list of rejected DTE keys)
+            rejected_keys = [k.strip() for k in payload.split(',')]
+            raise ParmwPartialError(cmd, rejected_keys)
         raise Exception('Bad response - {}'.format(resp))
 
     def _decode_multi_response(self, resp):
@@ -105,8 +119,18 @@ class DTECommands:
         return self._decode_key_values(self._decode_response(resp))
 
     def parmw(self, param_values={}):
+        """Write parameters. Returns dict {param_name: True/False} indicating per-param success.
+        Raises Exception on global format errors. Partial rejects are handled gracefully."""
         resp = self._send_and_receive(self._encode_command('PARMW', param_values=param_values))
-        self._decode_response(resp)
+        try:
+            self._decode_response(resp)
+            return {name: True for name in param_values}
+        except ParmwPartialError as e:
+            result = {}
+            for name in param_values:
+                key = DTEParamMap.param_to_key(name)
+                result[name] = key not in e.rejected_keys
+            return result
 
     def battery(self):
         """Read battery status via PARMR (BATT_SOC, BATT_VOLTAGE, LB_TRESHOLD, LB_CRITICAL_THRESH)."""

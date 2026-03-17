@@ -1,6 +1,6 @@
 from .transport import TransportType, create_transport
 from .transport.ble import BLETransport
-from .protocol.dte_commands import DTECommands
+from .protocol.dte_commands import DTECommands, ParmwPartialError
 from .ota.ota_ble import BLEOTAUpdater
 
 
@@ -43,7 +43,8 @@ class Tracker:
         self._map = {**a, **b}
 
     def set(self, param_values):
-        self._dte.parmw(param_values=param_values)
+        """Write parameters. Returns dict {param_name: True/False} for per-param success."""
+        return self._dte.parmw(param_values=param_values)
 
     def get(self, attr=None, default=KeyError):
         if attr is None:
