@@ -154,7 +154,7 @@ class SENSORTXENABLEMODE():
 
 
 class ARGOSMODE():
-    allowed = ['OFF', 'PASS_PREDICTION', 'LEGACY', 'DUTY_CYCLE', 'DOPPLER']
+    allowed = ['OFF', 'PASS_PREDICTION', 'LEGACY', 'DUTY_CYCLE', 'DOPPLER', 'SURFACING_BURST']
 
     @staticmethod
     def encode(value):
@@ -166,7 +166,7 @@ class ARGOSMODE():
 
 
 class ARGOSMODEZONE():
-    allowed = ['OFF', 'PASS_PREDICTION', 'LEGACY', 'DUTY_CYCLE', 'DOPPLER']
+    allowed = ['OFF', 'PASS_PREDICTION', 'LEGACY', 'DUTY_CYCLE', 'DOPPLER', 'SURFACING_BURST']
 
     @staticmethod
     def encode(value):
