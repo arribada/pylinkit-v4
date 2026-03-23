@@ -403,6 +403,7 @@ def main():
             pressure (LPS28DFW, device_id=1)::
 
             --scalw pressure --command 0 --value 1013.25 ; set sea level pressure in hPa (default 1013.25)
+            --scalw pressure --command 1 --value X ; set temperature offset in °C (default 0.0)
 
             ph (OEM pH, device_id=3)::
 
@@ -435,9 +436,8 @@ def main():
 
             thermistor (device_id=7)::
 
-            --scalw thermistor --command 0 ; reset thermistor calibration
-            --scalw thermistor --command 1 --value X ; calibrate millidegree
-            --scalw thermistor --command 2 ; save calibration
+            --scalw thermistor --command 0 ; reset calibration (offset = 0)
+            --scalw thermistor --command 1 --value X ; calibrate with reference temp in °C (firmware auto-computes offset)
 
             """)
             return
@@ -450,12 +450,17 @@ def main():
 
             axl (BMA400, device_id=0)::
 
-            --scalr axl --command 4 ; read calibrated X, Y, Z values
-            --scalr axl --command 5 ; read calibration coefficients
+            --scalr axl --command 1 ; read calibrated X value (g)
+            --scalr axl --command 2 ; read calibrated Y value (g)
+            --scalr axl --command 3 ; read calibrated Z value (g)
+            --scalr axl --command 5 ; read saved X offset (g)
+            --scalr axl --command 6 ; read saved Y offset (g)
+            --scalr axl --command 7 ; read saved Z offset (g)
 
             pressure (LPS28DFW, device_id=1)::
 
             --scalr pressure --command 0 ; read sea level pressure (hPa)
+            --scalr pressure --command 1 ; read temperature offset (°C)
 
             cdt (conductivity/impedance, device_id=5)::
 
@@ -469,7 +474,8 @@ def main():
 
             thermistor (device_id=7)::
 
-            --scalr thermistor --command 0 ; read calibration coefficient (offset)
+            --scalr thermistor --command 0 ; read current offset (°C)
+            --scalr thermistor --command 1 ; read current live temperature (°C)
             """)
             return
         print(dev.scalr(args.scalr, args.command))
