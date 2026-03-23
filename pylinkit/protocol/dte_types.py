@@ -202,7 +202,7 @@ class DEPTHPILE():
 
 
 class AQPERIOD():
-    allowed = [0,10,15,30,60,120,360,720,1440]
+    allowed = [0,10,15,30,60,120,180,240,360,720,1440]
 
     @staticmethod
     def encode(value):
@@ -322,6 +322,18 @@ class ACCRANGE():
         return ACCRANGE.allowed[int(value)]
 
 
+class RSPBPACKETFORMAT():
+    allowed = ['RSPB_LONG', 'RSPB_SHORT']
+
+    @staticmethod
+    def encode(value):
+        return str(RSPBPACKETFORMAT.allowed.index(value))
+
+    @staticmethod
+    def decode(value):
+        return RSPBPACKETFORMAT.allowed[int(value)]
+
+
 class dotdict(dict):
     """dot.notation access to dictionary attributes"""
     __getattr__ = dict.get
@@ -432,7 +444,11 @@ class LOGFILE():
                  'LOG_ERROR',
                  'LOG_WARN',
                  'LOG_INFO',
-                 'LOG_TRACE']
+                 'LOG_TRACE',
+                 'LOG_RESERVED_13',
+                 'LOG_MORTALITY']
+
+    MORTALITY_STATUS_NAMES = {0: 'ALIVE', 1: 'SUSPECTED', 2: 'CONFIRMED'}
 
     @staticmethod
     def decode_log_gps(payload, r):
@@ -458,6 +474,15 @@ class LOGFILE():
         return r
 
     @staticmethod
+    def decode_log_mortality(payload, r):
+        """Parse mortality log payload (26 bytes binary)."""
+        r.confidence, r.consecutive_days, r.status, r.last_activity, \
+        r.last_body_temp, r.last_lat, r.last_lon, r.last_eval_epoch = \
+            struct.unpack('<BBBBHddI', payload[:26])
+        r.status_name = LOGFILE.MORTALITY_STATUS_NAMES.get(r.status, f'UNKNOWN({r.status})')
+        return r
+
+    @staticmethod
     def decode(data, log_type=None):
         records = []
         while data:
@@ -467,6 +492,8 @@ class LOGFILE():
             payload_bytes = data[9:9+payload_size]
             if r.log_t == 'LOG_GPS':
                 LOGFILE.decode_log_gps(payload_bytes, r)
+            elif r.log_t == 'LOG_MORTALITY':
+                LOGFILE.decode_log_mortality(payload_bytes, r)
             elif log_type == 'pressure':
                 payload_text = payload_bytes.decode('ascii', errors='ignore')
                 LOGFILE.decode_log_pressure(payload_text, r)

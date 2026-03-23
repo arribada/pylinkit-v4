@@ -175,6 +175,25 @@ class DTECommands:
         Header: log_datetime,pressure,temperature,altitude"""
         return self.dumpd('pressure').decode('ascii', errors='ignore')
 
+    def dumpd_mortality(self):
+        """Dump mortality logs and decode to structured records.
+        Returns list of LOGRECORD with mortality fields."""
+        raw_data = self.dumpd('mortality')
+        return LOGFILE.decode(raw_data, log_type='mortality')
+
+    def mortality_log_to_csv(self):
+        """Dump mortality logs and return CSV string."""
+        records = self.dumpd_mortality()
+        lines = ['log_datetime,confidence,consecutive_days,status,last_activity,last_body_temp,last_lat,last_lon,last_eval_epoch']
+        for r in records:
+            dt = '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}'.format(
+                r.year, r.month, r.day, r.hours, r.mins, r.secs)
+            lines.append('{},{},{},{},{},{},{:.6f},{:.6f},{}'.format(
+                dt, r.confidence, r.consecutive_days, r.status_name,
+                r.last_activity, r.last_body_temp, r.last_lat, r.last_lon,
+                r.last_eval_epoch))
+        return '\n'.join(lines)
+
     def sws_log_to_csv(self):
         """Dump SWS logs and return CSV string.
         Header: log_datetime,raw_adc,filtered_adc,threshold,hysteresis,air,water,calibrated,underwater,time_in_state,surface_level,contrast_x10,observed_peak,sample_delay_us"""
@@ -308,17 +327,38 @@ class DTECommands:
         self.parmw({'ARGOS_RADIOCONF': rconf})
 
     def smdcd(self, id, addr, seckey, radioconf):
+        """Send SMDCD command (backward-compatible convenience wrapper).
+        Firmware now treats SMDCD as 4x write_param() + save_params() internally.
+        Same effect as writing IDP12, IDT06, IDP13, IDP14 via PARMW.
+        Credentials are applied to SMD hardware at next TX via dirty flag."""
         resp = self._send_and_receive(
             self._encode_command('SMDCD', args=[str(id), str(addr), str(seckey), str(radioconf)]),
             timeout=30.0
         )
         self._decode_response(resp)
 
+    def satvf(self):
+        """Verify satellite module credentials (SMD or KIM2): reads hardware values
+        and checks against config store. match=1 = in sync, match=0 = will sync at next TX.
+        Returns dict with id, addr, seckey, radioconf, match (bool)."""
+        resp = self._send_and_receive(
+            self._encode_command('SATVF'),
+            timeout=10.0
+        )
+        payload = self._decode_response(resp)
+        parts = payload.split(',')
+        return {
+            'id': int(parts[0]),
+            'addr': int(parts[1]),
+            'seckey': parts[2],
+            'radioconf': parts[3],
+            'match': bool(int(parts[4])),
+        }
+
     def sensr(self, mask=SensrMask.ALL, timeout=60):
         """Read sensors. mask: bitmask (0x01=battery, 0x02=pressure, 0x04=gnss,
-        0x08=accel, 0x10=thermistor, 0x1F=all).
-        Response: battery_mv,battery_soc,pressure_mbar,gnss_lat,gnss_lon,
-        gnss_hdop,gnss_num_sats,accel_x,accel_y,accel_z,thermistor_temp
+        0x08=accel, 0x10=thermistor, 0x20=sea_temp, 0x40=als, 0x80=ph, 0xFF=all).
+        Response: 19 fields including sensor_status bitmask.
         Non-requested sensors return 0 in their fields."""
         resp = self._send_and_receive(
             self._encode_command('SENSR', args=[str(mask), str(timeout)]),
@@ -326,19 +366,30 @@ class DTECommands:
         )
         payload = self._decode_response(resp)
         parts = payload.split(',')
-        return {
+        result = {
             'battery_mv': int(parts[0]),
             'battery_soc': int(parts[1]),
             'pressure_mbar': float(parts[2]),
-            'latitude': float(parts[3]),
-            'longitude': float(parts[4]),
-            'hdop': float(parts[5]),
-            'num_satellites': int(parts[6]),
-            'accel_x': float(parts[7]),
-            'accel_y': float(parts[8]),
-            'accel_z': float(parts[9]),
-            'thermistor_temp': float(parts[10]),
+            'temperature': float(parts[3]),
+            'altitude': float(parts[4]),
+            'latitude': float(parts[5]),
+            'longitude': float(parts[6]),
+            'hdop': float(parts[7]),
+            'num_satellites': int(parts[8]),
+            'accel_x': float(parts[9]),
+            'accel_y': float(parts[10]),
+            'accel_z': float(parts[11]),
+            'accel_temp': float(parts[12]),
+            'activity': int(parts[13]),
+            'thermistor_temp': float(parts[14]),
         }
+        # New fields (v2) — handle backward compat with old firmware
+        if len(parts) > 15:
+            result['sea_temp'] = float(parts[15])
+            result['als_lux'] = float(parts[16])
+            result['ph'] = float(parts[17])
+            result['sensor_status'] = int(parts[18])
+        return result
 
     def smddfu(self, action):
         """Send SMDDFU command.

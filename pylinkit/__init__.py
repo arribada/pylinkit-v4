@@ -87,6 +87,14 @@ class Tracker:
         """Dump SWS logs as CSV string: log_datetime,raw_adc,filtered_adc,...,sample_delay_us"""
         return self._dte.sws_log_to_csv()
 
+    def dumpd_mortality(self):
+        """Dump mortality logs decoded to structured records."""
+        return self._dte.dumpd_mortality()
+
+    def mortality_log_to_csv(self):
+        """Dump mortality logs as CSV string."""
+        return self._dte.mortality_log_to_csv()
+
     def erase(self, log_type):
         return self._dte.erase(log_type)
 
@@ -163,10 +171,19 @@ class Tracker:
         self._dte.update_radioconf(mod)
 
     def smdcd(self, id, addr, seckey, radioconf):
+        """Write SMD credentials via SMDCD command (backward-compatible convenience wrapper).
+        Same effect as PARMW on IDP12, IDT06, IDP13, IDP14.
+        Credentials are applied to SMD hardware at next TX."""
         self._dte.smdcd(id, addr, seckey, radioconf)
 
-    def sensr(self, mask=0x1F, timeout=60):
-        """Read sensors. Returns dict with battery, pressure, gnss, accel, thermistor."""
+    def satvf(self):
+        """Verify satellite module credentials (SMD/KIM2): config store vs hardware.
+        Returns dict with id, addr, seckey, radioconf, match (bool)."""
+        return self._dte.satvf()
+
+    def sensr(self, mask=0xFF, timeout=60):
+        """Read sensors. Returns dict with battery, pressure, gnss, accel, thermistor,
+        sea_temp, als_lux, ph, sensor_status."""
         return self._dte.sensr(mask, timeout)
 
     def smddfu(self, action):

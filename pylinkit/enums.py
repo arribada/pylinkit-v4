@@ -15,6 +15,7 @@ class BaseLogDType(IntEnum):
     THERMISTOR = 9
     TSYS01 = 10
     SWS_LOG = 11
+    MORTALITY = 12
 
     @classmethod
     def from_name(cls, name: str):
@@ -39,6 +40,7 @@ class BaseEraseType(IntEnum):
     THERMISTOR = 11
     TSYS01 = 12
     SWS_LOG = 13
+    MORTALITY = 14
 
     @classmethod
     def from_name(cls, name: str):
@@ -56,6 +58,7 @@ class BaseSensorCalType(IntEnum):
     PH = 3
     RTD = 4
     CDT = 5
+    MCP47X6 = 6
     THERMISTOR = 7
 
 
@@ -95,7 +98,10 @@ class SensrMask(IntEnum):
     GNSS = 0x04
     ACCEL = 0x08
     THERMISTOR = 0x10
-    ALL = 0x1F
+    SEA_TEMP = 0x20
+    ALS = 0x40
+    PH = 0x80
+    ALL = 0xFF
 
 
 class DTEError(IntEnum):

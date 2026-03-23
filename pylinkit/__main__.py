@@ -7,8 +7,8 @@ from .transport import TransportType, create_transport
 from .transport.serial import SerialTransport
 from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, create_wrapped_file_with_crc32, create_smd_wrapped_file, stm32_crc32
 
-erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws']
-dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws']
+erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws', 'mortality']
+dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws', 'mortality']
 scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'thermistor', 'pressure']
 scalr_options = ['cdt', 'axl', 'thermistor', 'pressure']
 resetv_options = {'tx_counter': 1, 'boot_counter': 2, 'rx_counter': 3, 'rx_time': 4}
@@ -92,12 +92,12 @@ cal_group.add_argument('--command', type=int, required=False, help='Calibration 
 cal_group.add_argument('--value', type=float, default=0, required=False, help='Calibration command value')
 
 # === Sensor Read ===
-sensr_options = {'all': 0x1F, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04, 'accel': 0x08, 'thermistor': 0x10}
+sensr_options = {'all': 0xFF, 'battery': 0x01, 'pressure': 0x02, 'gnss': 0x04, 'accel': 0x08, 'thermistor': 0x10, 'sea_temp': 0x20, 'als': 0x40, 'ph': 0x80}
 sensor_group = parser.add_argument_group('Sensor Read')
 sensor_group.add_argument('--battery', action='store_true', required=False,
                           help='Read battery status (voltage, SOC, low/critical)')
 sensor_group.add_argument('--sensr', type=str, choices=sensr_options.keys(), required=False,
-                          help='Read sensors (all, battery, pressure, gnss, accel, thermistor)')
+                          help='Read sensors (all, battery, pressure, gnss, accel, thermistor, sea_temp, als, ph)')
 sensor_group.add_argument('--sensr_timeout', type=int, default=60, required=False,
                           help='GNSS timeout in seconds (default: 60)')
 
@@ -130,11 +130,13 @@ lora_group.add_argument('--lorabr', action='store_true', required=False,
 # === SMD ===
 smd_group = parser.add_argument_group('SMD Module')
 smd_group.add_argument('--smdcd', action='store_true', required=False,
-                       help='Send Credentials to SMD flash memory')
+                       help='Write SMD credentials (applied to hardware at next TX)')
 smd_group.add_argument('--smdid', type=str, default='', required=False, help='SMD Decimal ID')
 smd_group.add_argument('--smdaddr', type=str, default='', required=False, help='SMD hexadecimal address')
 smd_group.add_argument('--smdseckey', type=str, default='', required=False, help='SMD Secret key')
 smd_group.add_argument('--smdradioconf', type=str, default='', required=False, help='SMD radio configuration')
+smd_group.add_argument('--satvf', action='store_true', required=False,
+                       help='Verify satellite credentials (config store vs hardware, SMD + KIM2)')
 smd_group.add_argument('--smdfw', type=argparse.FileType('rb'), required=False,
                        help='SMD module firmware binary for DFU update')
 smd_group.add_argument('--smdfw_mode', type=str, choices=['uart', 'spi'], default='uart', required=False,
@@ -486,20 +488,55 @@ def main():
     if args.sensr:
         r = dev.sensr(sensr_options[args.sensr], args.sensr_timeout)
         mask = sensr_options[args.sensr]
+        status = r.get('sensor_status', mask)  # backward compat: assume all OK if missing
+
+        def _sensr_avail(bit):
+            return bool(status & bit)
+
         if mask & 0x01:
-            print(f"Battery: {r['battery_mv']}mV ({r['battery_soc']}%)")
-        if mask & 0x02:
-            print(f"Pressure: {r['pressure_mbar']:.1f} mbar")
-        if mask & 0x04:
-            if r['hdop'] < 99.0:
-                print(f"GNSS: {r['latitude']:.6f}, {r['longitude']:.6f}")
-                print(f"HDOP: {r['hdop']:.1f}, Satellites: {r['num_satellites']}")
+            if _sensr_avail(0x01):
+                print(f"Battery: {r['battery_mv']}mV ({r['battery_soc']}%)")
             else:
-                print(f"GNSS: No valid fix (satellites: {r['num_satellites']})")
+                print("Battery: N/A")
+        if mask & 0x02:
+            if _sensr_avail(0x02):
+                print(f"Pressure: {r['pressure_mbar']:.1f} mbar, Temp: {r['temperature']:.1f} C, Alt: {r['altitude']:.1f} m")
+            else:
+                print("Pressure: N/A")
+        if mask & 0x04:
+            if _sensr_avail(0x04):
+                if r['hdop'] < 99.0:
+                    print(f"GNSS: {r['latitude']:.6f}, {r['longitude']:.6f}")
+                    print(f"HDOP: {r['hdop']:.1f}, Satellites: {r['num_satellites']}")
+                else:
+                    print(f"GNSS: No valid fix (satellites: {r['num_satellites']})")
+            else:
+                print("GNSS: N/A")
         if mask & 0x08:
-            print(f"Accel: X={r['accel_x']:.3f}g Y={r['accel_y']:.3f}g Z={r['accel_z']:.3f}g")
+            if _sensr_avail(0x08):
+                print(f"Accel: X={r['accel_x']:.3f}g Y={r['accel_y']:.3f}g Z={r['accel_z']:.3f}g")
+            else:
+                print("Accel: N/A")
         if mask & 0x10:
-            print(f"Thermistor: {r['thermistor_temp']:.1f} C")
+            if _sensr_avail(0x10):
+                print(f"Thermistor: {r['thermistor_temp']:.1f} C")
+            else:
+                print("Thermistor: N/A")
+        if mask & 0x20:
+            if _sensr_avail(0x20):
+                print(f"Sea Temp: {r.get('sea_temp', 0):.1f} C")
+            else:
+                print("Sea Temp: N/A")
+        if mask & 0x40:
+            if _sensr_avail(0x40):
+                print(f"ALS: {r.get('als_lux', 0):.1f} lux")
+            else:
+                print("ALS: N/A")
+        if mask & 0x80:
+            if _sensr_avail(0x80):
+                print(f"pH: {r.get('ph', 0):.2f}")
+            else:
+                print("pH: N/A")
 
     if args.gnssi:
         try:
@@ -570,6 +607,22 @@ def main():
 
     if args.smdcd:
         dev.smdcd(args.smdid, args.smdaddr, args.smdseckey, args.smdradioconf)
+        print("SMD credentials written (will be applied to hardware at next TX)")
+
+    if args.satvf:
+        try:
+            r = dev.satvf()
+            print(f"Satellite Module Credentials:")
+            print(f"  ID:        {r['id']}")
+            print(f"  Address:   {r['addr']}")
+            print(f"  SecKey:    {r['seckey']}")
+            print(f"  RadioConf: {r['radioconf']}")
+            if r['match']:
+                print(f"  Status:    MATCH (config store == hardware)")
+            else:
+                print(f"  Status:    MISMATCH (credentials will be updated at next TX)")
+        except Exception as e:
+            print(f"Credential verify FAILED: {e}")
 
     if args.smddfu:
         try:

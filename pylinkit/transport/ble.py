@@ -137,7 +137,7 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
         """Scan for BLE devices matching name filters."""
         transport = BLETransport()
         devices = transport._await_bleak(transport._scan_for_interval(interval))
-        return [d for d in devices if d.name and any(f in d.name for f in name_filters)]
+        return [d for d in devices if d.name and any(f.lower() in d.name.lower() for f in name_filters)]
 
     # --- Low-level BLE operations ---
 
@@ -162,16 +162,27 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
         await self._scanner.stop()
         return self._scanner.discovered_devices if self._scanner.discovered_devices else []
 
-    async def _connect_async(self, address, timeout):
+    async def _connect_async(self, address, timeout, retries=3):
         if self._connection_client is not None:
             raise Exception("Device already connected")
-        client = BleakClient(address)
-        try:
-            await client.connect(timeout=timeout)
-        except asyncio.TimeoutError:
-            raise Exception("Failed to connect: timeout") from asyncio.TimeoutError
-        self._connection_client = client
-        return client
+        for attempt in range(retries):
+            client = BleakClient(address)
+            try:
+                await client.connect(timeout=timeout)
+            except asyncio.TimeoutError:
+                raise Exception("Failed to connect: timeout") from asyncio.TimeoutError
+            # Wait briefly and verify connection survived (services changed event
+            # can cause an immediate disconnect on first connection after bonding)
+            await asyncio.sleep(0.5)
+            if client.is_connected:
+                self._connection_client = client
+                return client
+            logger.warning('BLE connection dropped (attempt %d/%d, services changed?), retrying...', attempt + 1, retries)
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+        raise Exception("Failed to connect: device disconnects after services changed event")
 
     async def _disconnect_async(self):
         if self._connection_client is not None:
