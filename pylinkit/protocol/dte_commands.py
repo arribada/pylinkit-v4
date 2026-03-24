@@ -292,14 +292,31 @@ class DTECommands:
         )
         self._decode_response(resp)
 
-    # Payload size per modulation (KIM2 hardware)
-    MODULATION_SIZE = {'LDK': 16, 'LDA2': 24, 'VLDA4': 3}
+    # Max payload size per modulation
+    MODULATION_MAX_SIZE = {'LDK': 16, 'LDA2': 28, 'VLDA4': 28}
 
-    def argostx(self, mod='LDA2', tcxo=2):
-        mod_value = ArgosModulation[mod.upper()].value
-        size = self.MODULATION_SIZE.get(mod.upper(), 24)
+    def argostx(self, mod='LDA2', size=None, radioconf=None, tcxo=0):
+        """Send Argos TX test packet.
+        mod: LDK, LDA2 or VLDA4
+        size: payload size in bytes (default: max for modulation)
+        radioconf: 32-char hex string (optional, uses stored config if None)
+        tcxo: TCXO warmup time in seconds (default: 0)
+        """
+        mod_upper = mod.upper()
+        mod_value = ArgosModulation[mod_upper].value
+        max_size = self.MODULATION_MAX_SIZE.get(mod_upper, 28)
+        if size is None:
+            size = max_size
+        if size < 1 or size > max_size:
+            raise ValueError(f"Size must be 1-{max_size} for {mod_upper}")
+        if radioconf is not None:
+            args = [str(mod_value), radioconf, str(size)]
+        else:
+            args = [str(mod_value), str(size)]
+        if tcxo > 0:
+            args.append(str(tcxo))
         resp = self._send_and_receive(
-            self._encode_command('SATTX', args=[str(mod_value), '0', '0', str(size), str(tcxo)]),
+            self._encode_command('SATTX', args=args),
             timeout=30.0
         )
         self._decode_response(resp)

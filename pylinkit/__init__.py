@@ -159,8 +159,8 @@ class Tracker:
             self.set({'GNSS_TOKEN': chipcode})
         return data, chipcode
 
-    def argostx(self, mod='LDA2', tcxo=2):
-        self._dte.argostx(mod, tcxo)
+    def argostx(self, mod='LDA2', size=None, radioconf=None, tcxo=0):
+        self._dte.argostx(mod, size, radioconf, tcxo)
 
     def loratx(self, size=12):
         """Send a LoRa test transmission. size: payload bytes (1-222)."""

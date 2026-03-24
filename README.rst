@@ -183,25 +183,30 @@ Pour demarrer le bridge GNSS UART (acces direct au u-blox M10, quitter avec ``++
 Argos / Satellite
 -----------------
 
-Pour envoyer un paquet TX de test Argos :
+Pour envoyer un paquet TX de test Argos (utilise la radioconf stockee sur le device) :
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --argostx
+    pylinkit --device xx:xx:xx:xx:xx:xx --argostx --argosmod LDK
+    pylinkit --device xx:xx:xx:xx:xx:xx --argostx --argosmod LDA2 --argossize 10
+    pylinkit --device xx:xx:xx:xx:xx:xx --argostx --argosmod VLDA4 --argostcxo 3
 
-Pour changer la modulation Kineis :
+Pour envoyer avec une radioconf custom (hex 32 chars, meme format que ARP51/52/53) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --argostx --argosradioconf 0123456789ABCDEF0123456789ABCDEF --argossize 10
+
+Taille max par modulation : LDK = 16 octets, LDA2 = 28 octets, VLDA4 = 28 octets.
+
+Pour changer la modulation Kineis (met a jour RADIOCONF + KMAC sur le device) :
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --argosmod LDK
     pylinkit --device xx:xx:xx:xx:xx:xx --argosmod LDA2
     pylinkit --device xx:xx:xx:xx:xx:xx --argosmod VLDA4
-
-Pour configurer le temps de chauffe TCXO :
-
-.. code-block:: bash
-
-    pylinkit --device xx:xx:xx:xx:xx:xx --argostcxo 5
 
 Pour demarrer la calibration Doppler (TX periodique jusqu'au reset) :
 

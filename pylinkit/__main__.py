@@ -116,7 +116,11 @@ sat_group.add_argument('--argostx', action='store_true', required=False, help='S
 sat_group.add_argument('--argosmod', type=str, default=None, required=False,
                        choices=['LDK', 'LDA2', 'VLDA4'],
                        help='Kineis modulation. If set, updates RADIOCONF + KMAC on device')
-sat_group.add_argument('--argostcxo', type=int, default=2, required=False, help='TCXO warm-up in seconds (default: 2)')
+sat_group.add_argument('--argossize', type=int, default=None, required=False,
+                       help='TX payload size in bytes (default: max for modulation, LDK=16, LDA2/VLDA4=28)')
+sat_group.add_argument('--argosradioconf', type=str, default=None, required=False,
+                       help='Custom radioconf hex string (32 chars). If omitted, uses stored config (ARP51/52/53)')
+sat_group.add_argument('--argostcxo', type=int, default=0, required=False, help='TCXO warm-up in seconds (default: 0)')
 sat_group.add_argument('--satdp', action='store_true', required=False,
                        help='Start Doppler calibration (periodic TX until reset)')
 
@@ -591,7 +595,7 @@ def main():
         if args.argosmod is not None:
             print(f"WARNING: --argosmod {args.argosmod} will update RADIOCONF (IDP14) on the SMD module")
             dev.update_radioconf(args.argosmod)
-        dev.argostx(mod, args.argostcxo)
+        dev.argostx(mod, args.argossize, args.argosradioconf, args.argostcxo)
 
     if args.loratx is not None:
         try:
