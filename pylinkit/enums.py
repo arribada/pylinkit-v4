@@ -60,6 +60,7 @@ class BaseSensorCalType(IntEnum):
     CDT = 5
     MCP47X6 = 6
     THERMISTOR = 7
+    SWS = 8
 
 
 class ComponentPower(IntEnum):

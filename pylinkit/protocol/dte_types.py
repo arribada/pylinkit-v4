@@ -129,18 +129,6 @@ class ARGOSPOWER():
         return ARGOSPOWER.allowed[int(value)]
 
 
-class UWDETECTSOURCE():
-    allowed = ['SWS', 'PRESSURE_SENSOR', 'GNSS', 'SWS_GNSS']
-
-    @staticmethod
-    def encode(value):
-        return str(UWDETECTSOURCE.allowed.index(value))
-
-    @staticmethod
-    def decode(value):
-        return UWDETECTSOURCE.allowed[int(value)]
-
-
 class SENSORTXENABLEMODE():
     allowed = ['OFF', 'ONESHOT', 'MEAN', 'MEDIAN']
 
@@ -202,15 +190,22 @@ class DEPTHPILE():
 
 
 class AQPERIOD():
-    allowed = [0,10,15,30,60,120,180,240,360,720,1440]
+    # firmware index → value in minutes (non-sequential indices since v4.0.5)
+    _index_to_minutes = {
+        0: 0,
+        1: 10, 2: 15, 3: 30, 4: 60, 5: 120,
+        6: 180, 7: 240, 8: 360, 9: 720, 10: 1440,
+        11: 1, 12: 2, 13: 5, 14: 20, 15: 45,
+    }
+    _minutes_to_index = {v: k for k, v in _index_to_minutes.items()}
 
     @staticmethod
     def encode(value):
-        return str(AQPERIOD.allowed.index(int(value)))
+        return str(AQPERIOD._minutes_to_index[int(value)])
 
     @staticmethod
     def decode(value):
-        return AQPERIOD.allowed[int(value)]
+        return AQPERIOD._index_to_minutes[int(value)]
 
 
 class LEDMODE():

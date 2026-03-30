@@ -467,6 +467,34 @@ class DTECommands:
         )
         self._decode_response(resp)
 
+    SWSCAL_STATUS = {0: 'IN_PROGRESS', 1: 'SUCCESS', 2: 'FAILED', 3: 'CANCELLED'}
+
+    def swscal(self, start=True):
+        """Start or cancel SWS guided calibration.
+        start=True: begin calibration (async phases: air → water → result).
+        start=False: cancel in-progress calibration.
+        Returns immediately with initial ACK, then sends async push with result."""
+        resp = self._send_and_receive(
+            self._encode_command('SWSCAL', args=['1' if start else '0'])
+        )
+        self._decode_response(resp)
+
+    def wait_swscal_result(self, timeout=60.0):
+        """Wait for async SWSCAL result push.
+        Returns dict with status (0-3), air (uint), water (uint), status_name."""
+        resp = self._wait_for_push(timeout=timeout)
+        if resp is None:
+            raise TimeoutError(f'SWS calibration: no result after {timeout}s')
+        payload = self._decode_response(resp)
+        parts = payload.split(',')
+        status = int(parts[0])
+        return {
+            'status': status,
+            'status_name': self.SWSCAL_STATUS.get(status, f'UNKNOWN({status})'),
+            'air': int(parts[1]),
+            'water': int(parts[2]),
+        }
+
     def swstst(self, start=True):
         """Start or stop SWS test mode. start=True to start, False to stop."""
         resp = self._send_and_receive(

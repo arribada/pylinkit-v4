@@ -9,8 +9,8 @@ from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, creat
 
 erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws', 'mortality']
 dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws', 'mortality']
-scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'thermistor', 'pressure']
-scalr_options = ['cdt', 'axl', 'thermistor', 'pressure']
+scalw_options = ['cdt', 'axl', 'ph', 'rtd', 'thermistor', 'pressure', 'sws']
+scalr_options = ['cdt', 'axl', 'thermistor', 'pressure', 'sws']
 resetv_options = {'tx_counter': 1, 'boot_counter': 2, 'rx_counter': 3, 'rx_time': 4}
 modulation_options = {'LDK': 0, 'LDA2': 1, 'VLDA4': 2}
 pwr_options = ['all', 'gnss', 'sensors', 'satellite', 'off']
@@ -157,6 +157,8 @@ sws_group.add_argument('--swsst', action='store_true', required=False,
                        help='Read Salt Water Switch status')
 sws_group.add_argument('--swstst', type=str, choices=['start', 'stop'], required=False,
                        help='Start or stop SWS test mode')
+sws_group.add_argument('--swscal', type=str, choices=['start', 'cancel'], required=False,
+                       help='SWS guided calibration (start or cancel)')
 
 # === RTC ===
 rtc_group = parser.add_argument_group('RTC')
@@ -443,6 +445,11 @@ def main():
             --scalw thermistor --command 0 ; reset calibration (offset = 0)
             --scalw thermistor --command 1 --value X ; calibrate with reference temp in °C (firmware auto-computes offset)
 
+            sws (Salt Water Switch, device_id=8)::
+
+            --scalw sws --command 0 --value X ; set water hint (ADC 0-16383)
+            --scalw sws --command 1 --value X ; set air hint (ADC 0-16383)
+
             """)
             return
         dev.scalw(args.scalw, args.command, args.value)
@@ -480,6 +487,14 @@ def main():
 
             --scalr thermistor --command 0 ; read current offset (°C)
             --scalr thermistor --command 1 ; read current live temperature (°C)
+
+            sws (Salt Water Switch, device_id=8)::
+
+            --scalr sws --command 0 ; read water hint (ADC)
+            --scalr sws --command 1 ; read air hint (ADC)
+            --scalr sws --command 2 ; read running water value (ADC)
+            --scalr sws --command 3 ; read running air value (ADC)
+            --scalr sws --command 4 ; read observed peak (ADC)
             """)
             return
         print(dev.scalr(args.scalr, args.command))
@@ -742,6 +757,28 @@ def main():
                 print(f"SWS Test: {'RUNNING' if running else 'STOPPED'}")
         except Exception as e:
             print(f"SWS Test FAILED: {e}")
+
+    if args.swscal:
+        try:
+            if args.swscal == 'start':
+                print("SWS Guided Calibration: starting...")
+                print("  Phase 1: Place device in AIR (green LED flashing)")
+                dev.swscal(start=True)
+                print("  Waiting for calibration result...")
+                r = dev.wait_swscal_result(timeout=120.0)
+                if r['status'] == 1:
+                    print(f"  Calibration SUCCESS — air={r['air']} water={r['water']}")
+                elif r['status'] == 2:
+                    print(f"  Calibration FAILED")
+                elif r['status'] == 3:
+                    print(f"  Calibration CANCELLED")
+                else:
+                    print(f"  Status: {r['status_name']} air={r['air']} water={r['water']}")
+            else:
+                dev.swscal(start=False)
+                print("SWS Guided Calibration: cancelled")
+        except Exception as e:
+            print(f"SWS Calibration FAILED: {e}")
 
     if args.rtcr:
         from datetime import datetime, timezone

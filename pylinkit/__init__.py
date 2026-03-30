@@ -203,6 +203,15 @@ class Tracker:
         """Start Doppler calibration. Periodic TX until device reset."""
         self._dte.satdp()
 
+    def swscal(self, start=True):
+        """Start or cancel SWS guided calibration."""
+        self._dte.swscal(start)
+
+    def wait_swscal_result(self, timeout=60.0):
+        """Wait for SWS guided calibration result.
+        Returns dict with status, status_name, air, water."""
+        return self._dte.wait_swscal_result(timeout)
+
     def swstst(self, start=True):
         """Start or stop SWS test mode. Returns True if test running."""
         return self._dte.swstst(start)
