@@ -71,6 +71,7 @@ class DTEParamMap():
     [ "SURFACING_BURST_STEP", "ARP41", UINT ],
     [ "SURFACING_BURST_MAX_INTERVAL", "ARP42", UINT ],
     [ "SURFACING_BURST_MAX_MSG", "ARP43", UINT ],
+    [ "SURFACING_GNSS_MAX_TX", "ARP44", UINT ],
     [ "RX_COUNTER", "ART10", UINT ],
     [ "RX_TIME", "ART11", UINT ],
     [ "GNSS_ASSISTNOW_EN", "GNP24", BOOLEAN ],
@@ -206,6 +207,7 @@ class DTEParamMap():
     [ "MORTALITY_CONFIRM_DAYS", "MTP05", UINT ],
     [ "MORTALITY_DUTY_CYCLE_MODULO", "MTP06", UINT ],
     [ "MORTALITY_ORIGINAL_MODULO", "MTP07", UINT ],
+    [ "SMD_LPM_MODE", "ARP60", UINT ],
     ]
 
     @staticmethod
