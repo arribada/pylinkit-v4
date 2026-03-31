@@ -206,6 +206,7 @@ class DTEParamMap():
     [ "MORTALITY_CONFIRM_DAYS", "MTP05", UINT ],
     [ "MORTALITY_DUTY_CYCLE_MODULO", "MTP06", UINT ],
     [ "MORTALITY_ORIGINAL_MODULO", "MTP07", UINT ],
+    [ "SMD_LPM_MODE", "ARP60", UINT ],
     ]
 
     @staticmethod
