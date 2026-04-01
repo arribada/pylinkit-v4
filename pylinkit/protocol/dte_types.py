@@ -221,7 +221,7 @@ class LEDMODE():
 
 
 class DEBUGMODE():
-    allowed = ['UART', 'USB_CDC', 'BLE_NUS']
+    allowed = ['UART', 'USB_CDC', 'BLE_NUS', 'NONE']
 
     @staticmethod
     def encode(value):
