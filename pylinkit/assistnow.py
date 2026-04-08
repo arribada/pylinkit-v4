@@ -71,26 +71,27 @@ def _save_cache(cache: dict):
 
 # --- Download ---
 
-def _download_with_chipcode(chipcode: str, service_url: str = FALLBACK_URL) -> bytes:
+def _download_with_chipcode(chipcode: str, service_url: str = FALLBACK_URL, period: int = 5) -> bytes:
     """Download almanac using a chipcode."""
-    logger.info("Downloading almanac with chipcode=%s from %s", chipcode, service_url)
+    logger.info("Downloading almanac with chipcode=%s from %s (period=%d weeks)", chipcode, service_url, period)
     result = requests.get(service_url, params={
         "chipcode": chipcode,
         "gnss": "gps,glo,gal",
         "data": "uporb_1,ualm",
+        "period": period,
     }, timeout=HTTP_TIMEOUT)
     result.raise_for_status()
     logger.info("Almanac downloaded: %d bytes", len(result.content))
     return result.content
 
 
-def _download_fallback(token: str) -> bytes:
+def _download_fallback(token: str, period: int = 5) -> bytes:
     """Fallback: direct AssistNow Offline API without chipcode."""
-    logger.info("Downloading almanac via fallback API (no chipcode)")
+    logger.info("Downloading almanac via fallback API (no chipcode, period=%d weeks)", period)
     resp = requests.get(FALLBACK_URL, params={
         "token": token,
         "gnss": "gps+glo+gal",
-        "period": 4,
+        "period": period,
         "resolution": 1,
     }, timeout=HTTP_TIMEOUT)
     resp.raise_for_status()
@@ -99,7 +100,7 @@ def _download_fallback(token: str) -> bytes:
 
 
 def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: str,
-                     chipcode: str = None) -> tuple:
+                     chipcode: str = None, period: int = 5) -> tuple:
     """Download AssistNow Offline almanac data from u-blox.
 
     Flow:
@@ -114,7 +115,7 @@ def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: st
     # 1. Try with existing chipcode (from device)
     if chipcode:
         try:
-            return _download_with_chipcode(chipcode), chipcode
+            return _download_with_chipcode(chipcode, period=period), chipcode
         except RequestException as e:
             logger.warning("Download with existing chipcode failed: %s", e)
 
@@ -128,7 +129,7 @@ def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: st
             service_url = cache[cache_key]["serviceUrl"]
             logger.info("Trying cached chipcode %s", cached_chipcode)
             try:
-                return _download_with_chipcode(cached_chipcode, service_url), cached_chipcode
+                return _download_with_chipcode(cached_chipcode, service_url, period=period), cached_chipcode
             except RequestException as e:
                 logger.warning("Download with cached chipcode failed: %s", e)
 
@@ -148,7 +149,7 @@ def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: st
 
         if resp.status_code == 403:
             logger.warning("ZTP returned 403, using fallback API")
-            return _download_fallback(token), None
+            return _download_fallback(token, period=period), None
 
         resp.raise_for_status()
         data = resp.json()
@@ -161,11 +162,11 @@ def download_almanac(token: str, unique_id: str, sw_version: str, hw_version: st
 
         # 4. Download with new chipcode
         try:
-            return _download_with_chipcode(new_chipcode, service_url), new_chipcode
+            return _download_with_chipcode(new_chipcode, service_url, period=period), new_chipcode
         except RequestException as e:
             logger.warning("Download with new chipcode failed: %s, using fallback", e)
-            return _download_fallback(token), new_chipcode
+            return _download_fallback(token, period=period), new_chipcode
 
     except RequestException as e:
         logger.warning("ZTP registration failed: %s, using fallback", e)
-        return _download_fallback(token), None
+        return _download_fallback(token, period=period), None

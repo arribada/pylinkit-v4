@@ -137,11 +137,12 @@ class Tracker:
         """Write RTC time. If timestamp is None, uses current UTC time."""
         self._dte.rtcw(timestamp)
 
-    def download_almanac(self, token):
+    def download_almanac(self, token, period=5):
         """Download AssistNow almanac and send to device.
         Reads existing chipcode from device, powers on GNSS, reads module info,
         downloads from u-blox (skipping ZTP if chipcode exists), uploads to device,
         and saves any new chipcode as GNSS_TOKEN parameter.
+        period: almanac duration in weeks (1-5, default 5).
         Returns tuple of (almanac_bytes, chipcode)."""
         import time
         from .assistnow import download_almanac
@@ -152,7 +153,7 @@ class Tracker:
         info = self.gnssi()
         data, chipcode = download_almanac(
             token, info['unique_id'], info['sw_version'], info['hw_version'],
-            chipcode=existing_chipcode
+            chipcode=existing_chipcode, period=period
         )
         self.firmware_update(create_wrapped_file_with_crc32(data), 2)
         if chipcode and chipcode != existing_chipcode:

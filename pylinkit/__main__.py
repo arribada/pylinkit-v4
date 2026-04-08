@@ -81,6 +81,8 @@ cmd_group.add_argument('--ano-token', type=str, required=False,
                        help='u-blox ZTP token for AssistNow almanac download')
 cmd_group.add_argument('--ano-save', type=str, required=False,
                        help='Save downloaded almanac to local file')
+cmd_group.add_argument('--ano-period', type=int, required=False, default=5, choices=[1, 2, 3, 4, 5],
+                       help='Almanac duration in weeks (1-5, default: 5)')
 
 # === Calibration ===
 cal_group = parser.add_argument_group('Calibration')
@@ -372,7 +374,7 @@ def main():
             parser.error('--ano-token is required for --ano-download')
         try:
             print("Downloading AssistNow almanac...")
-            almanac_data, chipcode = dev.download_almanac(args.ano_token)
+            almanac_data, chipcode = dev.download_almanac(args.ano_token, period=args.ano_period)
             print(f"  Downloaded {len(almanac_data)} bytes, chipcode={chipcode}")
             if args.ano_save:
                 with open(args.ano_save, 'wb') as f:
