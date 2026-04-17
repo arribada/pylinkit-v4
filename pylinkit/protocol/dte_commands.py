@@ -560,6 +560,18 @@ class DTECommands:
         )
         self._decode_response(resp)
 
+    def kimbr(self, action=1):
+        """Start or stop KIM2 UART bridge.
+        action=1: start bridge (powers on KIM2, enters AT passthrough).
+        action=0: stop bridge (return to DTE).
+        In bridge mode, raw bytes are forwarded USB <-> KIM2 UART (line-based).
+        Send +++\\r\\n to exit bridge mode."""
+        resp = self._send_and_receive(
+            self._encode_command('KIMBR', args=[str(action)]),
+            timeout=10.0
+        )
+        self._decode_response(resp)
+
     SURFACE_LEVEL_NAMES = {
         0: 'NONE',
         1: 'L1_DROP_25',

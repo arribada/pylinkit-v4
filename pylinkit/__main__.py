@@ -147,6 +147,8 @@ smd_group.add_argument('--smddfu', type=str, choices=smddfu_actions.keys(), requ
                        help='SMD DFU action (enter, exit, status, update, info, version)')
 smd_group.add_argument('--smdtst', action='store_true', required=False,
                        help='Run SMD SPI test')
+smd_group.add_argument('--kimbr', action='store_true', required=False,
+                       help='Start KIM2 UART bridge (USB <-> KIM2 AT commands, +++\\r\\n to exit)')
 
 # === SWS (Salt Water Switch) ===
 sws_group = parser.add_argument_group('SWS (Salt Water Switch)')
@@ -619,6 +621,10 @@ def main():
     if args.lorabr:
         start_bridge("LoRa UART (USB <-> RAK3172 AT commands)",
                       lambda: dev.lorabr(1), "Tera Term")
+
+    if args.kimbr:
+        start_bridge("KIM2 UART (USB <-> KIM2 AT commands)",
+                      lambda: dev.kimbr(1), "Tera Term")
 
     if args.satdp:
         try:

@@ -225,6 +225,10 @@ class Tracker:
         """Start/stop LoRa UART bridge. action=1 start, 0 stop. Send +++ to exit."""
         self._dte.lorabr(action)
 
+    def kimbr(self, action=1):
+        """Start/stop KIM2 UART bridge. action=1 start, 0 stop. Send +++\\r\\n to exit."""
+        self._dte.kimbr(action)
+
     def swsst(self):
         """Read SWS (Salt Water Switch) status."""
         return self._dte.swsst()
