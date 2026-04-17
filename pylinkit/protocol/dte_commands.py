@@ -343,24 +343,14 @@ class DTECommands:
             raise ValueError(f'No RADIOCONF defined for modulation {mod}')
         self.parmw({'ARGOS_RADIOCONF': rconf})
 
-    def smdcd(self, id, addr, seckey, radioconf):
-        """Send SMDCD command (backward-compatible convenience wrapper).
-        Firmware now treats SMDCD as 4x write_param() + save_params() internally.
-        Same effect as writing IDP12, IDT06, IDP13, IDP14 via PARMW.
-        Credentials are applied to SMD hardware at next TX via dirty flag."""
+    def satvf(self, force=0):
+        """Verify satellite/LoRa module credentials: reads hardware values and checks
+        against config store. force=0 read-only, force=1 rewrites config store into
+        module on mismatch then re-reads. Returns dict with id, addr, seckey,
+        radioconf, match (bool), forced (bool)."""
         resp = self._send_and_receive(
-            self._encode_command('SMDCD', args=[str(id), str(addr), str(seckey), str(radioconf)]),
+            self._encode_command('SATVF', args=[str(int(force))]),
             timeout=30.0
-        )
-        self._decode_response(resp)
-
-    def satvf(self):
-        """Verify satellite module credentials (SMD or KIM2): reads hardware values
-        and checks against config store. match=1 = in sync, match=0 = will sync at next TX.
-        Returns dict with id, addr, seckey, radioconf, match (bool)."""
-        resp = self._send_and_receive(
-            self._encode_command('SATVF'),
-            timeout=10.0
         )
         payload = self._decode_response(resp)
         parts = payload.split(',')
@@ -370,6 +360,7 @@ class DTECommands:
             'seckey': parts[2],
             'radioconf': parts[3],
             'match': bool(int(parts[4])),
+            'forced': bool(int(parts[5])),
         }
 
     def sensr(self, mask=SensrMask.ALL, timeout=60):

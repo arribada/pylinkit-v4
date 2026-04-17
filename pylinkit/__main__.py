@@ -135,14 +135,9 @@ lora_group.add_argument('--lorabr', action='store_true', required=False,
 
 # === SMD ===
 smd_group = parser.add_argument_group('SMD Module')
-smd_group.add_argument('--smdcd', action='store_true', required=False,
-                       help='Write SMD credentials (applied to hardware at next TX)')
-smd_group.add_argument('--smdid', type=str, default='', required=False, help='SMD Decimal ID')
-smd_group.add_argument('--smdaddr', type=str, default='', required=False, help='SMD hexadecimal address')
-smd_group.add_argument('--smdseckey', type=str, default='', required=False, help='SMD Secret key')
-smd_group.add_argument('--smdradioconf', type=str, default='', required=False, help='SMD radio configuration')
-smd_group.add_argument('--satvf', action='store_true', required=False,
-                       help='Verify satellite credentials (config store vs hardware, SMD + KIM2)')
+smd_group.add_argument('--satvf', type=int, choices=[0, 1], required=False, metavar='FORCE',
+                       help='Verify satellite/LoRa credentials (config store vs hardware). '
+                            '0=read-only, 1=rewrite module on mismatch')
 smd_group.add_argument('--smdfw', type=argparse.FileType('rb'), required=False,
                        help='SMD module firmware binary for DFU update')
 smd_group.add_argument('--smdfw_mode', type=str, choices=['uart', 'spi'], default='uart', required=False,
@@ -632,14 +627,10 @@ def main():
         except Exception as e:
             print(f"Doppler calibration FAILED: {e}")
 
-    if args.smdcd:
-        dev.smdcd(args.smdid, args.smdaddr, args.smdseckey, args.smdradioconf)
-        print("SMD credentials written (will be applied to hardware at next TX)")
-
-    if args.satvf:
+    if args.satvf is not None:
         try:
-            r = dev.satvf()
-            print(f"Satellite Module Credentials:")
+            r = dev.satvf(args.satvf)
+            print(f"Satellite/LoRa Module Credentials:")
             print(f"  ID:        {r['id']}")
             print(f"  Address:   {r['addr']}")
             print(f"  SecKey:    {r['seckey']}")
@@ -647,7 +638,9 @@ def main():
             if r['match']:
                 print(f"  Status:    MATCH (config store == hardware)")
             else:
-                print(f"  Status:    MISMATCH (credentials will be updated at next TX)")
+                print(f"  Status:    MISMATCH")
+            if r['forced']:
+                print(f"  Forced:    YES (credentials re-written from config store)")
         except Exception as e:
             print(f"Credential verify FAILED: {e}")
 

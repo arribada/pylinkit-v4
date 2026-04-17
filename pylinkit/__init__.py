@@ -171,16 +171,11 @@ class Tracker:
         """Update RADIOCONF (IDP14) for given modulation."""
         self._dte.update_radioconf(mod)
 
-    def smdcd(self, id, addr, seckey, radioconf):
-        """Write SMD credentials via SMDCD command (backward-compatible convenience wrapper).
-        Same effect as PARMW on IDP12, IDT06, IDP13, IDP14.
-        Credentials are applied to SMD hardware at next TX."""
-        self._dte.smdcd(id, addr, seckey, radioconf)
-
-    def satvf(self):
-        """Verify satellite module credentials (SMD/KIM2): config store vs hardware.
-        Returns dict with id, addr, seckey, radioconf, match (bool)."""
-        return self._dte.satvf()
+    def satvf(self, force=0):
+        """Verify satellite/LoRa module credentials (config store vs hardware).
+        force=1 pushes config store into module on mismatch.
+        Returns dict with id, addr, seckey, radioconf, match (bool), forced (bool)."""
+        return self._dte.satvf(force)
 
     def sensr(self, mask=0xFF, timeout=60):
         """Read sensors. Returns dict with battery, pressure, gnss, accel, thermistor,

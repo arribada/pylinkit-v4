@@ -218,11 +218,18 @@ Pour demarrer la calibration Doppler (TX periodique jusqu'au reset) :
 SMD (module satellite Kineis)
 -----------------------------
 
-Pour envoyer les credentials SMD :
+Pour provisionner les credentials SMD (ecriture via PARMW puis push vers le module) :
 
 .. code-block:: bash
 
-    pylinkit --device xx:xx:xx:xx:xx:xx --smdcd --smdid <ID> --smdaddr <ADDR> --smdseckey <KEY> --smdradioconf <CONF>
+    pylinkit --device xx:xx:xx:xx:xx:xx --parmw ARGOS_DECID=<ID>,ARGOS_HEXID=<ADDR>,ARGOS_SECKEY=<KEY>,ARGOS_RADIOCONF=<CONF>
+    pylinkit --device xx:xx:xx:xx:xx:xx --satvf 1
+
+Pour verifier les credentials (lecture seule) :
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --satvf 0
 
 Pour la mise a jour firmware SMD :
 
