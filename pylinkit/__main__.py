@@ -326,11 +326,19 @@ def main():
         dev.poll(args.poll, int(args.value))
 
     if args.parmw:
+        from .protocol.dte_commands import DTECommands
         cfg = OrderedRawConfigParser()
         cfg.optionxform = lambda option: option
         cfg.read_string(args.parmw.read())
+        params = cfg['PARAM']
+        rconf_keys = [k for k in params if k in DTECommands.RCONF_PARAM_KEYS]
+        if rconf_keys:
+            print(f"WARNING: RCONF key(s) present ({', '.join(rconf_keys)}).")
+            print(f"  KIM2 firmware validates RCONF at next boot. If VLDA4 is configured")
+            print(f"  with rf_level != {DTECommands.VLDA4_REQUIRED_DBM} dBm, it will be disabled automatically.")
+            print(f"  Run '--satvf 0' after reboot to verify the active modulation and power.")
         try:
-            result = dev.set(cfg['PARAM'])
+            result = dev.set(params)
             ok = [k for k, v in result.items() if v]
             nok = [k for k, v in result.items() if not v]
             if ok:
@@ -635,12 +643,25 @@ def main():
 
     if args.satvf is not None:
         try:
+            from .protocol.dte_commands import DTECommands
             r = dev.satvf(args.satvf)
             print(f"Satellite/LoRa Module Credentials:")
             print(f"  ID:        {r['id']}")
             print(f"  Address:   {r['addr']}")
             print(f"  SecKey:    {r['seckey']}")
             print(f"  RadioConf: {r['radioconf']}")
+            if r.get('modulation_hw') is not None:
+                print(f"  HW RConf decoded:")
+                print(f"    Freq min:    {r['freq_min_hz'] / 1_000_000:.6f} MHz")
+                print(f"    Freq max:    {r['freq_max_hz'] / 1_000_000:.6f} MHz")
+                print(f"    RF level:    {r['rf_level_dbm']} dBm")
+                print(f"    Modulation:  {r['modulation_hw']}")
+                if r['modulation_hw'] == 'VLDA4':
+                    if r['vlda4_compliant']:
+                        print(f"    VLDA4:       COMPLIANT ({DTECommands.VLDA4_REQUIRED_DBM} dBm)")
+                    else:
+                        print(f"    VLDA4:       *** NON-COMPLIANT *** (requires {DTECommands.VLDA4_REQUIRED_DBM} dBm, got {r['rf_level_dbm']} dBm)")
+                        print(f"                 Firmware will disable VLDA4 at boot and fall back to LDK/LDA2.")
             if r['match']:
                 print(f"  Status:    MATCH (config store == hardware)")
             else:

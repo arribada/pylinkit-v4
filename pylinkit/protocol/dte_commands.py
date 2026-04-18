@@ -336,6 +336,13 @@ class DTECommands:
         'VLDA4': '',  # TODO: fill from Kineis SDK
     }
 
+    # Regulatory: KIM2 firmware rejects VLDA4 if rf_level != 27 dBm.
+    VLDA4_REQUIRED_DBM = 27
+
+    # Param keys that hold a 32-char hex RCONF string (IDP14 + per-mod slots).
+    RCONF_PARAM_KEYS = ('ARGOS_RADIOCONF', 'ARGOS_RADIOCONF_VLDA4',
+                        'ARGOS_RADIOCONF_LDA2', 'ARGOS_RADIOCONF_LDK')
+
     def update_radioconf(self, mod):
         """Update RADIOCONF (IDP14) for given modulation. KIM2 applies at next power-on."""
         rconf = self.RADIOCONF.get(mod.upper(), '')
@@ -346,22 +353,48 @@ class DTECommands:
     def satvf(self, force=0):
         """Verify satellite/LoRa module credentials: reads hardware values and checks
         against config store. force=0 read-only, force=1 rewrites config store into
-        module on mismatch then re-reads. Returns dict with id, addr, seckey,
-        radioconf, match (bool), forced (bool)."""
+        module on mismatch then re-reads.
+
+        Returns dict with:
+          id, addr, seckey, radioconf (hex), match (bool), forced (bool).
+        When the KIM2 firmware reports the decoded hardware RCONF (firmware >= v04),
+        additional keys are populated:
+          freq_min_hz, freq_max_hz, rf_level_dbm, modulation_hw (str),
+          vlda4_compliant (bool or None if the module is not in VLDA4).
+        """
         resp = self._send_and_receive(
             self._encode_command('SATVF', args=[str(int(force))]),
             timeout=30.0
         )
         payload = self._decode_response(resp)
         parts = payload.split(',')
-        return {
+        result = {
             'id': int(parts[0]),
             'addr': int(parts[1]),
             'seckey': parts[2],
             'radioconf': parts[3],
             'match': bool(int(parts[4])),
             'forced': bool(int(parts[5])),
+            'freq_min_hz': None,
+            'freq_max_hz': None,
+            'rf_level_dbm': None,
+            'modulation_hw': None,
+            'vlda4_compliant': None,
         }
+        # Extended layout (new firmware): 4 decoded RCONF fields appended.
+        if len(parts) >= 10:
+            try:
+                mod_code = int(parts[9])
+                mod_name = ArgosModulation(mod_code).name if mod_code in ArgosModulation._value2member_map_ else f'UNKNOWN({mod_code})'
+            except (ValueError, KeyError):
+                mod_name = parts[9]
+            result['freq_min_hz'] = int(parts[6])
+            result['freq_max_hz'] = int(parts[7])
+            result['rf_level_dbm'] = int(parts[8])
+            result['modulation_hw'] = mod_name
+            if mod_name == 'VLDA4':
+                result['vlda4_compliant'] = (result['rf_level_dbm'] == self.VLDA4_REQUIRED_DBM)
+        return result
 
     def sensr(self, mask=SensrMask.ALL, timeout=60):
         """Read sensors. mask: bitmask (0x01=battery, 0x02=pressure, 0x04=gnss,
