@@ -321,13 +321,50 @@ class DTECommands:
         )
         self._decode_response(resp)
 
-    def loratx(self, size=12):
-        """Send a LoRa test transmission. size: payload bytes (1-222, depends on DR)."""
+    # LoRa DR -> max payload (bytes). From RAK3172 / EU868 regional spec.
+    LORA_DR_MAX_PAYLOAD = {0: 51, 1: 51, 2: 51, 3: 115, 4: 222, 5: 222}
+
+    # LoRa DR -> recommended GUI timeout (s). Driver timeout per DR + ~10 s margin.
+    LORA_DR_TIMEOUT_S = {0: 170, 1: 90, 2: 55, 3: 30, 4: 20, 5: 15}
+
+    def loratx(self, size=12, dr=None):
+        """Send a LoRa test transmission (firmware fills payload with 0xFF).
+
+        size: payload bytes (1-222, constrained by the active LORA_DR/LRP10).
+        dr:   LoRa data rate (0-5). If provided, the payload size is validated
+              client-side against the DR max and the response timeout is sized
+              to the worst-case airtime + RX windows. If None, uses a 180 s
+              safety timeout and skips size validation (firmware re-validates).
+
+        Returns dict:
+          status: optional free-text status from firmware (may be None).
+
+        Raises:
+          ValueError on client-side validation failure.
+          Exception on DTE error. Common codes:
+            2 MISSING_ARGUMENT, 3 INCORRECT_DATA (size out of range, or
+            non-LoRa build, or device null), 5 VALUE_OUT_OF_RANGE.
+        """
+        if not 1 <= int(size) <= 222:
+            raise ValueError('size must be 1-222 bytes')
+        if dr is not None:
+            if dr not in self.LORA_DR_MAX_PAYLOAD:
+                raise ValueError(f'Invalid LORA_DR {dr} (expected 0-5)')
+            max_size = self.LORA_DR_MAX_PAYLOAD[dr]
+            if size > max_size:
+                raise ValueError(
+                    f'Payload {size} B exceeds DR{dr} max ({max_size} B). '
+                    f'Reduce size or change LORA_DR (LRP10).'
+                )
+            timeout = float(self.LORA_DR_TIMEOUT_S[dr])
+        else:
+            timeout = 180.0  # worst-case safety (DR0 + full payload + margin)
         resp = self._send_and_receive(
             self._encode_command('LORATX', args=[str(size)]),
-            timeout=30.0
+            timeout=timeout
         )
-        self._decode_response(resp)
+        payload = self._decode_response(resp)
+        return {'status': payload if payload else None}
 
     # RADIOCONF per modulation (16 bytes hex = 32 chars, from Kineis SDK kns_app_conf.h)
     RADIOCONF = {

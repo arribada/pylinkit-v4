@@ -740,11 +740,42 @@ def main():
         dev.argostx(mod, args.argossize, args.argosradioconf, args.argostcxo)
 
     if args.loratx is not None:
+        from .protocol.dte_commands import DTECommands
+        # Pre-flight: read LORA_DR (LRP10) and LORA_FPORT (LRP14) to validate
+        # payload size and compute an appropriate timeout. Skip gracefully if
+        # the params aren't readable (non-LoRa build) — firmware will reject.
+        dr = None
+        fport = None
         try:
-            dev.loratx(args.loratx)
-            print(f"LoRa TX sent ({args.loratx} bytes)")
+            prm = dev._dte.parmr(['LRP10', 'LRP14'])
+            dr = int(prm.get('LORA_DR')) if 'LORA_DR' in prm else None
+            fport = int(prm.get('LORA_FPORT')) if 'LORA_FPORT' in prm else None
+        except Exception:
+            pass
+        if dr is not None:
+            sf_label = {0: 'SF12', 1: 'SF11', 2: 'SF10', 3: 'SF9', 4: 'SF8', 5: 'SF7'}.get(dr, '?')
+            max_p = DTECommands.LORA_DR_MAX_PAYLOAD.get(dr)
+            tmo = DTECommands.LORA_DR_TIMEOUT_S.get(dr)
+            print(f"LoRa config: DR{dr} ({sf_label}), max payload {max_p} B, "
+                  f"FPort={fport if fport is not None else '?'}, expected wait up to ~{tmo} s")
+        else:
+            print("LoRa config: LRP10/LRP14 not readable — firmware may not be LoRa build")
+        try:
+            r = dev.loratx(args.loratx, dr)
+            info = r.get('status')
+            print(f"LoRa TX OK ({args.loratx} bytes)" + (f" — {info}" if info else ""))
+        except ValueError as e:
+            print(f"LoRa TX REJECTED (client): {e}")
         except Exception as e:
-            print(f"LoRa TX FAILED: {e}")
+            msg = str(e)
+            hint = ''
+            if 'error 3' in msg:
+                hint = ('\n  Hint: INCORRECT_DATA — size out of range for current DR, '
+                        'non-LoRa firmware, or module not initialized. '
+                        'Check LORA_DR (LRP10) and --smddfu version.')
+            elif 'DUTYCYCLE' in msg.upper():
+                hint = '\n  Hint: duty-cycle restriction hit, wait ~1 min before retry.'
+            print(f"LoRa TX FAILED: {e}{hint}")
 
     if args.lorabr:
         start_bridge("LoRa UART (USB <-> RAK3172 AT commands)",
