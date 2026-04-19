@@ -30,6 +30,8 @@ class SerialTransport(DataTransport, LogTransport):
         self._running = False
         self._data_callback = None
         self._log_callback = None
+        self._raw_callback = None
+        self._raw_mode = False
 
     # --- Transport interface ---
 
@@ -78,6 +80,18 @@ class SerialTransport(DataTransport, LogTransport):
     def subscribe_data(self, callback):
         self._data_callback = callback
 
+    # --- Raw bridge mode (byte-level passthrough, no line buffering) ---
+
+    def subscribe_raw(self, callback):
+        """Register a callback for raw byte chunks (used during bridge mode)."""
+        self._raw_callback = callback
+
+    def set_raw_mode(self, enabled):
+        """Enable/disable raw passthrough. When enabled, all incoming bytes are
+        forwarded to the raw callback without line parsing; data/log callbacks
+        are bypassed."""
+        self._raw_mode = bool(enabled)
+
     # --- LogTransport interface ---
 
     def subscribe_log(self, callback):
@@ -107,6 +121,12 @@ class SerialTransport(DataTransport, LogTransport):
                     chunk = self._serial.read(1)  # Blocking read with timeout
 
                 if not chunk:
+                    continue
+
+                # Raw passthrough: bypass line buffering.
+                if self._raw_mode:
+                    if self._raw_callback:
+                        self._raw_callback(chunk)
                     continue
 
                 buffer += chunk

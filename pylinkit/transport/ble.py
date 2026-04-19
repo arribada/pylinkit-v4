@@ -54,7 +54,9 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
         self._data_callback = None
         self._log_callback = None
         self._ota_status_callback = None
+        self._raw_callback = None
         self._log_mode = False
+        self._raw_mode = False
 
         atexit.register(self._cleanup)
 
@@ -120,12 +122,29 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
         """Switch between DTE data mode and log trace mode."""
         self._log_mode = enabled
 
+    # --- Raw bridge mode ---
+
+    def subscribe_raw(self, callback):
+        """Register a callback for raw byte chunks (used during bridge mode).
+        Note: NUS RX is line-buffered by the firmware, so binary payloads (e.g. UBX)
+        will not pass through intact over BLE — use USB for GNSS binary bridging."""
+        self._raw_callback = callback
+
+    def set_raw_mode(self, enabled):
+        """Enable/disable raw passthrough. When enabled, all NUS notifications
+        are forwarded to the raw callback; data/log callbacks are bypassed."""
+        self._raw_mode = bool(enabled)
+        if enabled:
+            self._subscribe(NUS_TX_CHAR_UUID, self._nus_handler)
+
     # --- Internal NUS handler ---
 
     def _nus_handler(self, _, data):
-        """Route NUS notifications to data or log callback."""
+        """Route NUS notifications to raw, data or log callback."""
         raw = bytes(data)
-        if self._log_mode and self._log_callback:
+        if self._raw_mode and self._raw_callback:
+            self._raw_callback(raw)
+        elif self._log_mode and self._log_callback:
             self._log_callback(raw)
         elif self._data_callback:
             self._data_callback(raw)

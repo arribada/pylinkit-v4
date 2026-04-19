@@ -150,6 +150,13 @@ smd_group.add_argument('--smdtst', action='store_true', required=False,
 smd_group.add_argument('--kimbr', action='store_true', required=False,
                        help='Start KIM2 UART bridge (USB <-> KIM2 AT commands, +++\\r\\n to exit)')
 
+# === Bridge Terminal (embedded) ===
+bridge_group = parser.add_argument_group('Bridge Terminal')
+bridge_group.add_argument('--bridge', type=str, choices=['gnss', 'kim2', 'lora'], required=False,
+                          help='Open an embedded terminal bridge to a module (GNSS/KIM2/LoRa). '
+                               'Keeps the session open, type +++ to exit. '
+                               'Warning: GNSS binary (UBX) over BLE is not supported.')
+
 # === SWS (Salt Water Switch) ===
 sws_group = parser.add_argument_group('SWS (Salt Water Switch)')
 sws_group.add_argument('--swsst', action='store_true', required=False,
@@ -171,6 +178,107 @@ rtc_group.add_argument('--rtcw_timestamp', type=int, required=False,
 # === Misc ===
 parser.add_argument('--debug', action='store_true', required=False, help='Turn on debug trace')
 parser.add_argument('--version', action='version', version='%(prog)s ' + importlib.metadata.version('pylinkit'))
+
+
+def bridge_terminal(dev, module, is_ble):
+    """Open an embedded terminal bridge to a module (gnss/kim2/lora).
+
+    Keeps the current transport session open, switches the transport to raw
+    passthrough mode, and forwards stdin <-> module. Exit sequence: a line
+    containing only '+++' (sends '+++\\r' to the module, triggers firmware
+    [BRIDGE OFF]) or Ctrl+C.
+    """
+    import sys
+    import time
+    import threading
+
+    BRIDGES = {
+        'gnss': ('GNSS (u-blox M10 @ 9600 baud)', dev.gnssbr),
+        'kim2': ('KIM2 AT', dev.kimbr),
+        'lora': ('LoRa RAK3172 AT', dev.lorabr),
+    }
+    if module not in BRIDGES:
+        print(f"Unknown bridge module: {module}")
+        return
+    name, start_stop_fn = BRIDGES[module]
+    transport = dev.transport
+
+    if module == 'gnss' and is_ble:
+        print("\033[93mWARNING: GNSS bridge over BLE is line-buffered by the firmware.")
+        print("  Binary UBX payloads will not pass through correctly.")
+        print("  For u-center, use USB transport (--transport usb --port COMx).\033[0m")
+        try:
+            ans = input("Continue anyway? [y/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            return
+        if ans.strip().lower() != 'y':
+            return
+
+    try:
+        print(f"Starting {name} bridge...")
+        start_stop_fn(1)
+    except Exception as e:
+        print(f"Bridge start FAILED: {e}")
+        return
+
+    def on_raw(data):
+        try:
+            sys.stdout.buffer.write(data)
+            sys.stdout.buffer.flush()
+        except Exception:
+            pass
+
+    transport.subscribe_raw(on_raw)
+    transport.set_raw_mode(True)
+
+    print(f"\033[41;97m*** BRIDGE ACTIVE - module: {name} ***\033[0m")
+    print("Type commands and press Enter. Type '+++' alone to exit bridge.")
+    print("Firmware idle timeout: 20 min. Ctrl+C also exits.")
+    print("-" * 70)
+
+    exit_requested = threading.Event()
+
+    def input_loop():
+        while not exit_requested.is_set():
+            try:
+                line = input()
+            except (EOFError, KeyboardInterrupt):
+                exit_requested.set()
+                return
+            if line.strip() == '+++':
+                try:
+                    transport.send_data(b'+++\r')
+                except Exception:
+                    pass
+                time.sleep(0.3)
+                exit_requested.set()
+                return
+            try:
+                transport.send_data(line.encode('utf-8', errors='replace') + b'\r')
+            except Exception as e:
+                print(f"\n[send error: {e}]")
+
+    t = threading.Thread(target=input_loop, daemon=True)
+    t.start()
+
+    try:
+        while not exit_requested.is_set():
+            exit_requested.wait(0.5)
+    except KeyboardInterrupt:
+        exit_requested.set()
+
+    transport.set_raw_mode(False)
+    time.sleep(0.2)
+    print()
+    print(f"\033[41;97m*** BRIDGE OFF - module: {name} ***\033[0m")
+
+    # Belt-and-suspenders stop: firmware should already be back in DTE after +++,
+    # but send explicit action=0 as backup. Ignore errors (may fail if firmware
+    # is mid-transition).
+    try:
+        start_stop_fn(0)
+    except Exception:
+        pass
 
 
 def setup_logging(enabled, level):
@@ -633,6 +741,9 @@ def main():
     if args.kimbr:
         start_bridge("KIM2 UART (USB <-> KIM2 AT commands)",
                       lambda: dev.kimbr(1), "Tera Term")
+
+    if args.bridge:
+        bridge_terminal(dev, args.bridge, is_ble=(transport_type == TransportType.BLE))
 
     if args.satdp:
         try:

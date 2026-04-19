@@ -37,6 +37,11 @@ class Tracker:
         """Release the transport connection."""
         self._transport.disconnect()
 
+    @property
+    def transport(self):
+        """Expose the underlying transport (for bridge raw-mode usage)."""
+        return self._transport
+
     def sync(self):
         a = self._dte.parmr()
         b = self._dte.statr()
