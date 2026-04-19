@@ -150,6 +150,18 @@ smd_group.add_argument('--smdtst', action='store_true', required=False,
 smd_group.add_argument('--kimbr', action='store_true', required=False,
                        help='Start KIM2 UART bridge (USB <-> KIM2 AT commands, +++\\r\\n to exit)')
 
+# === RF Test ===
+rf_group = parser.add_argument_group('RF Test')
+rf_group.add_argument('--comcw', type=str, choices=['start', 'stop'], required=False,
+                      help='Continuous Wave RF test (SMD/LoRa). WARNING: use ONLY with '
+                           'Faraday cage + 50Ohm load — unshielded CW violates ETSI.')
+rf_group.add_argument('--cw-freq', type=int, required=False,
+                      help='CW frequency in Hz (SMD ~401650000, LoRa ~868100000)')
+rf_group.add_argument('--cw-power', type=int, required=False, default=14,
+                      help='CW power in dBm (0-30, default 14)')
+rf_group.add_argument('--cw-duration', type=int, required=False,
+                      help='CW duration in seconds (LoRa: required >=1; SMD: 0=continuous)')
+
 # === Bridge Terminal (embedded) ===
 bridge_group = parser.add_argument_group('Bridge Terminal')
 bridge_group.add_argument('--bridge', type=str, choices=['gnss', 'kim2', 'lora'], required=False,
@@ -744,6 +756,25 @@ def main():
 
     if args.bridge:
         bridge_terminal(dev, args.bridge, is_ble=(transport_type == TransportType.BLE))
+
+    if args.comcw:
+        mode = 1 if args.comcw == 'start' else 0
+        if mode == 1 and args.cw_freq is None:
+            parser.error('--comcw start requires --cw-freq')
+        if mode == 1:
+            print("\033[41;97m*** WARNING: CW RF test — Faraday cage + 50Ohm load REQUIRED ***\033[0m")
+            print(f"  freq={args.cw_freq} Hz ({args.cw_freq/1_000_000:.3f} MHz), "
+                  f"power={args.cw_power} dBm, "
+                  f"duration={args.cw_duration if args.cw_duration is not None else 'module-default'} s")
+        try:
+            r = dev.comcw(mode, args.cw_freq, args.cw_power, args.cw_duration)
+            label = 'CW START' if mode == 1 else 'CW STOP'
+            if r['status'] == 0:
+                print(f"{label} OK: {r['info']}")
+            else:
+                print(f"{label} FAILED (status={r['status']}): {r['info']}")
+        except Exception as e:
+            print(f"COMCW FAILED: {e}")
 
     if args.satdp:
         try:

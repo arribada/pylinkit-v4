@@ -396,6 +396,52 @@ class DTECommands:
                 result['vlda4_compliant'] = (result['rf_level_dbm'] == self.VLDA4_REQUIRED_DBM)
         return result
 
+    def comcw(self, mode, freq_hz=None, power_dbm=None, duration_s=None):
+        """Continuous Wave RF test.
+
+        mode=1: start CW (requires freq_hz and power_dbm; duration_s optional).
+        mode=0: stop CW.
+
+        Per-module behavior (selected by firmware build):
+          - SMD:  AT+CW=01,<freq>,<pwr>[,<dur>]   (duration 0 = continuous)
+          - LoRa: AT+CW=<freq>,<pwr>,<dur>        (duration required >= 1 s)
+          - KIM2: not supported (status=1, info="CW not supported on this module")
+
+        Typical frequencies: SMD 400-402 MHz (Argos), LoRa 863-870 MHz (EU868).
+        Power range: 0-30 dBm.
+
+        Returns dict:
+          status: 0 = CW action OK, 1 = CW action failed / module not supported.
+          info:   free-text status string.
+        """
+        if mode not in (0, 1):
+            raise ValueError('mode must be 0 (stop) or 1 (start)')
+        if mode == 1 and (freq_hz is None or power_dbm is None):
+            raise ValueError('start (mode=1) requires freq_hz and power_dbm')
+        if power_dbm is not None and not 0 <= int(power_dbm) <= 30:
+            raise ValueError('power_dbm must be 0-30')
+        if duration_s is not None and not 0 <= int(duration_s) <= 65535:
+            raise ValueError('duration_s must be 0-65535')
+        args = [str(int(mode))]
+        if mode == 1:
+            args.append(str(int(freq_hz)))
+            args.append(str(int(power_dbm)))
+            if duration_s is not None:
+                args.append(str(int(duration_s)))
+        # Allow generous timeout: LoRa ATZ reset after stop takes a few seconds.
+        resp = self._send_and_receive(
+            self._encode_command('COMCW', args=args),
+            timeout=15.0
+        )
+        payload = self._decode_response(resp)
+        # Payload: "<status>,<info>" -- info is free text, may contain spaces
+        # but no commas per firmware contract. Split on first comma only.
+        parts = payload.split(',', 1)
+        return {
+            'status': int(parts[0]),
+            'info': parts[1] if len(parts) > 1 else '',
+        }
+
     def sensr(self, mask=SensrMask.ALL, timeout=60):
         """Read sensors. mask: bitmask (0x01=battery, 0x02=pressure, 0x04=gnss,
         0x08=accel, 0x10=thermistor, 0x20=sea_temp, 0x40=als, 0x80=ph, 0xFF=all).

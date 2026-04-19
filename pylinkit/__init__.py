@@ -204,6 +204,11 @@ class Tracker:
         """Start Doppler calibration. Periodic TX until device reset."""
         self._dte.satdp()
 
+    def comcw(self, mode, freq_hz=None, power_dbm=None, duration_s=None):
+        """Continuous Wave RF test (SMD/LoRa). mode=1 start, 0 stop.
+        Returns dict with status (0=OK, 1=failed/unsupported) and info string."""
+        return self._dte.comcw(mode, freq_hz, power_dbm, duration_s)
+
     def swscal(self, start=True):
         """Start or cancel SWS guided calibration."""
         self._dte.swscal(start)
