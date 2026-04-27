@@ -1,3 +1,5 @@
+__version__ = '4.1.0'
+
 from .transport import TransportType, create_transport
 from .transport.ble import BLETransport
 from .protocol.dte_commands import DTECommands, ParmwPartialError
@@ -174,9 +176,11 @@ class Tracker:
         Returns dict with optional status string."""
         return self._dte.loratx(size, dr)
 
-    def update_radioconf(self, mod):
-        """Update RADIOCONF (IDP14) for given modulation."""
-        self._dte.update_radioconf(mod)
+    def update_radioconf(self, mod, custom=None):
+        """Update RADIOCONF (IDP14) for given modulation.
+        If `custom` (32-char hex string) is provided, it is written instead of
+        the default radioconf for `mod`."""
+        self._dte.update_radioconf(mod, custom=custom)
 
     def satvf(self, force=0):
         """Verify satellite/LoRa module credentials (config store vs hardware).

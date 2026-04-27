@@ -366,11 +366,12 @@ class DTECommands:
         payload = self._decode_response(resp)
         return {'status': payload if payload else None}
 
-    # RADIOCONF per modulation (16 bytes hex = 32 chars, from Kineis SDK kns_app_conf.h)
+    # Default RADIOCONF per modulation (16 bytes hex = 32 chars, from Kineis SDK kns_app_conf.h
+    # indices 207/208/209). Used by update_radioconf() when no custom value is supplied.
     RADIOCONF = {
         'LDK':   '03921fb104b92859209b18abd009de96',
-        'LDA2':  '',  # TODO: fill from Kineis SDK
-        'VLDA4': '',  # TODO: fill from Kineis SDK
+        'LDA2':  '2c93600d6be3bac0ccfe9047c02c058e',
+        'VLDA4': '550b4bec21009c7a7b5bebaa937cdb41',
     }
 
     # Regulatory: KIM2 firmware rejects VLDA4 if rf_level != 27 dBm.
@@ -380,11 +381,21 @@ class DTECommands:
     RCONF_PARAM_KEYS = ('ARGOS_RADIOCONF', 'ARGOS_RADIOCONF_VLDA4',
                         'ARGOS_RADIOCONF_LDA2', 'ARGOS_RADIOCONF_LDK')
 
-    def update_radioconf(self, mod):
-        """Update RADIOCONF (IDP14) for given modulation. KIM2 applies at next power-on."""
-        rconf = self.RADIOCONF.get(mod.upper(), '')
-        if not rconf:
-            raise ValueError(f'No RADIOCONF defined for modulation {mod}')
+    def update_radioconf(self, mod, custom=None):
+        """Update RADIOCONF (IDP14). KIM2 applies it at next power-on.
+
+        mod: modulation name ('LDK', 'LDA2', 'VLDA4'). Used to validate the
+             modulation name and to look up the default radioconf.
+        custom: optional 32-char hex string. If provided, this value is written
+                instead of the default for `mod`. The user is responsible for
+                ensuring the string matches the modulation it is paired with.
+        """
+        if custom:
+            rconf = custom
+        else:
+            rconf = self.RADIOCONF.get(mod.upper(), '')
+            if not rconf:
+                raise ValueError(f'No RADIOCONF defined for modulation {mod}')
         self.parmw({'ARGOS_RADIOCONF': rconf})
 
     def satvf(self, force=0):

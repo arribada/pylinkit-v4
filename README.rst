@@ -1,86 +1,138 @@
+pylinkit
+========
+
+Python configuration and diagnostic tool for the Linkit V4 tracker
+family (Linkit, Horizon, RSPB).
+
+pylinkit talks to the device using the DTE command protocol over BLE
+(Nordic UART Service), USB CDC or a raw UART link. It provides a CLI
+front-end (``pylinkit``) and a Python API (``pylinkit.Scanner``,
+``pylinkit.Tracker``).
+
+
 Installation
 ============
 
-python setup.py install
+.. code-block:: bash
+
+    pip install .
+
+For development install:
+
+.. code-block:: bash
+
+    pip install -e .
+
+Requires Python ``>= 3.8``. Runtime dependencies (installed
+automatically): ``bleak``, ``pyserial``, ``requests``.
 
 
 Transport
 =========
 
-pylinkit supporte trois modes de transport pour communiquer avec le tracker :
+pylinkit supports three transports:
 
-- **BLE** (Bluetooth Low Energy) : mode par defaut, utilise le Nordic UART Service (NUS)
-- **USB** : lecture des logs en temps reel via port serie CDC (115200 baud)
-- **UART** : lecture des logs en temps reel via port serie
+- **BLE** (default): Bluetooth Low Energy via the Nordic UART Service.
+  Required for OTA firmware updates.
+- **USB**: USB-CDC virtual serial (115200 baud by default). Bidirectional
+  DTE + log streaming. OTA over USB is also supported.
+- **UART**: raw serial link. Read-only by default (log streaming only,
+  no commands).
 
-Le transport se selectionne avec l'option ``--transport [ble|usb|uart]``.
+The transport is selected with ``--transport [ble|usb|uart]``. For
+serial transports, ``--port`` selects the port, and ``--baudrate``
+overrides the default 115200.
 
 
-Usage
-=====
+CLI usage
+=========
 
-Scan & decouverte
------------------
+Discovery
+---------
 
-Pour scanner les beacons BLE :
+Scan for BLE devices (filters on names containing ``Linkit``, ``Horizon``
+or ``RSPB``):
 
 .. code-block:: bash
 
     pylinkit --scan
 
-Pour lister les ports serie disponibles :
+List available serial ports (USB/UART):
 
 .. code-block:: bash
 
     pylinkit --list-ports
 
 
-Configuration
--------------
+Configuration parameters
+------------------------
 
-Pour lire les parametres de configuration dans un fichier :
-
-.. code-block:: bash
-
-    pylinkit --device xx:xx:xx:xx:xx:xx --parmr params.txt
-
-Pour ecrire les parametres de configuration depuis un fichier :
+Read all parameters into an INI file:
 
 .. code-block:: bash
 
-    pylinkit --device xx:xx:xx:xx:xx:xx --parmw params.txt
+    pylinkit --device xx:xx:xx:xx:xx:xx --parmr params.cfg
 
-Pour interroger un parametre specifique :
+Write parameters from an INI file:
 
 .. code-block:: bash
 
-    pylinkit --device xx:xx:xx:xx:xx:xx --poll BATT_VOLTAGE --value 1
+    pylinkit --device xx:xx:xx:xx:xx:xx --parmw params.cfg
+
+Poll a single parameter ``N`` times:
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --poll BATT_VOLTAGE --value 5
+
+Configuration file format::
+
+    [PARAM]
+    PROFILE_NAME = LIAM
+    ARGOS_FREQ = 401.6599
+    ARGOS_POWER = 500
+    TR_NOM = 120
+    ARGOS_MODE = DUTY_CYCLE
+    NTRY_PER_MESSAGE = 1000
+    DUTY_CYCLE = 16777215
+    GNSS_EN = 1
+    DLOC_ARG_NOM = 10
+    ARGOS_DEPTH_PILE = 1
+    GNSS_ACQ_TIMEOUT = 60
+    ARGOS_HEXID = 4E7B54C
+
+The file must have a ``[PARAM]`` section. Timestamp parameters
+(``LAST_KNOWN_RTC``, ``RTC_CURRENT_TIME``) are exported in
+``DD/MM/YYYY HH:MM:SS`` UTC format.
 
 
-Logs & monitoring
------------------
+Logs and monitoring
+-------------------
 
-Pour visualiser les logs en temps reel (BLE, USB ou UART) :
+Live log viewer (works over BLE, USB or UART):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --log
-    pylinkit --transport usb --port COM3 --log
+    pylinkit --transport usb  --port COM3 --log
     pylinkit --transport uart --port COM3 --log
 
-L'option ``--no-color`` desactive la coloration ANSI.
+``--no-color`` disables ANSI colors. The log viewer parses
+``DD/MM/YYYY HH:MM:SS [LEVEL] message`` and color-codes each level.
 
-Pour telecharger les logs (sensor ou systeme) :
+Download a log file. Output is **raw binary** as received from the
+device (use the Python API to decode it into JSON or CSV):
 
 .. code-block:: bash
 
-    pylinkit --device xx:xx:xx:xx:xx:xx --dumpd gpslog.json --dumpd_type gnss
-    pylinkit --device xx:xx:xx:xx:xx:xx --dumpd syslog.json --dumpd_type system [--format csv]
+    pylinkit --device xx:xx:xx:xx:xx:xx --dumpd gpslog.bin --dumpd_type gnss
+    pylinkit --device xx:xx:xx:xx:xx:xx --dumpd syslog.bin --dumpd_type system
 
-Types de logs disponibles : ``system``, ``gnss``, ``als``, ``ph``, ``rtd``, ``cdt``,
-``cam``, ``axl``, ``pressure``, ``thermistor``, ``tsys01``.
+Available ``--dumpd_type`` values: ``system``, ``gnss``, ``als``, ``ph``,
+``rtd``, ``cdt``, ``cam``, ``axl``, ``pressure``, ``thermistor``,
+``tsys01``, ``sws``, ``mortality``.
 
-Pour effacer les logs :
+Erase logs:
 
 .. code-block:: bash
 
@@ -88,23 +140,26 @@ Pour effacer les logs :
     pylinkit --device xx:xx:xx:xx:xx:xx --erase sensor
     pylinkit --device xx:xx:xx:xx:xx:xx --erase system
 
+``--erase`` accepts the same set of types as ``--dumpd_type``, plus
+the aliases ``all``, ``sensor`` (= ``gnss``) and ``system``.
 
-Controle du device
-------------------
 
-Pour effectuer un reset logiciel :
+Device control
+--------------
+
+Soft reset:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --rstbw
 
-Pour effectuer un reset usine (efface config, logs, paspw, zones) :
+Factory reset (erases configuration, logs, paspw and zones):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --factw
 
-Pour reinitialiser les compteurs :
+Reset counters:
 
 .. code-block:: bash
 
@@ -113,7 +168,7 @@ Pour reinitialiser les compteurs :
     pylinkit --device xx:xx:xx:xx:xx:xx --rstvw rx_counter
     pylinkit --device xx:xx:xx:xx:xx:xx --rstvw rx_time
 
-Pour controler l'alimentation des modules :
+Power control of internal modules:
 
 .. code-block:: bash
 
@@ -124,16 +179,16 @@ Pour controler l'alimentation des modules :
     pylinkit --device xx:xx:xx:xx:xx:xx --pwron off
 
 
-Batterie & capteurs
+Battery and sensors
 -------------------
 
-Pour lire la batterie :
+Read battery (voltage, SoC, low/critical thresholds):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --battery
 
-Pour lire un capteur :
+Read sensors:
 
 .. code-block:: bash
 
@@ -144,36 +199,49 @@ Pour lire un capteur :
     pylinkit --device xx:xx:xx:xx:xx:xx --sensr accel
     pylinkit --device xx:xx:xx:xx:xx:xx --sensr all
 
+Available ``--sensr`` channels: ``all``, ``battery``, ``pressure``,
+``gnss``, ``accel``, ``thermistor``, ``sea_temp``, ``als``, ``ph``.
+
 
 GNSS
 ----
 
-Pour lire les informations du module GNSS :
+Read u-blox module info (powers GNSS on, reads, leaves on so chain calls
+stay fast):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --gnssi
 
-Pour verifier le statut de l'almanach AssistNow :
+Check the AssistNow almanac status stored on device:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --gnssa
 
-Pour envoyer un almanach AssistNow offline :
+Send a pre-downloaded AssistNow Offline almanac:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --ano almanac.bin
 
-Pour telecharger et envoyer l'almanach depuis u-blox :
+Download AssistNow Offline from u-blox and push to device. Validity
+period in weeks: 1 to 5 (default 5).
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --ano-download --ano-token <ZTP_TOKEN>
-    pylinkit --device xx:xx:xx:xx:xx:xx --ano-download --ano-token <ZTP_TOKEN> --ano-save almanac.bin
+    pylinkit --device xx:xx:xx:xx:xx:xx --ano-download --ano-token <ZTP_TOKEN> --ano-period 3 --ano-save almanac.bin
 
-Pour demarrer le bridge GNSS UART (acces direct au u-blox M10, quitter avec ``+++``) :
+The download flow is:
+
+1. Try the chipcode stored on the device (``GNSS_TOKEN``).
+2. Try a chipcode from the local cache (``~/.pylinkit/assistnow_cache.json``).
+3. Otherwise register via u-blox ZTP and store the new chipcode.
+4. Fall back to the unauthenticated AssistNow Offline endpoint on 403.
+
+Open a passthrough UART bridge to the u-blox M10 (use Tera Term or
+u-center on the released port; type ``+++`` to exit):
 
 .. code-block:: bash
 
@@ -183,7 +251,8 @@ Pour demarrer le bridge GNSS UART (acces direct au u-blox M10, quitter avec ``++
 Argos / Satellite
 -----------------
 
-Pour envoyer un paquet TX de test Argos (utilise la radioconf stockee sur le device) :
+Send a test Argos packet using the radio configuration stored on the
+device:
 
 .. code-block:: bash
 
@@ -192,15 +261,17 @@ Pour envoyer un paquet TX de test Argos (utilise la radioconf stockee sur le dev
     pylinkit --device xx:xx:xx:xx:xx:xx --argostx --argosmod LDA2 --argossize 10
     pylinkit --device xx:xx:xx:xx:xx:xx --argostx --argosmod VLDA4 --argostcxo 3
 
-Pour envoyer avec une radioconf custom (hex 32 chars, meme format que ARP51/52/53) :
+Send with a custom radioconf (32 hex chars, same format as ARP51/52/53):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --argostx --argosradioconf 0123456789ABCDEF0123456789ABCDEF --argossize 10
 
-Taille max par modulation : LDK = 16 octets, LDA2 = 28 octets, VLDA4 = 28 octets.
+Maximum payload size per modulation: ``LDK = 16``, ``LDA2 = 28``,
+``VLDA4 = 28``.
 
-Pour changer la modulation Kineis (met a jour RADIOCONF + KMAC sur le device) :
+Switch the active Kineis modulation. This persists the default
+RADIOCONF (IDP14) for the chosen modulation onto the SMD module:
 
 .. code-block:: bash
 
@@ -208,36 +279,46 @@ Pour changer la modulation Kineis (met a jour RADIOCONF + KMAC sur le device) :
     pylinkit --device xx:xx:xx:xx:xx:xx --argosmod LDA2
     pylinkit --device xx:xx:xx:xx:xx:xx --argosmod VLDA4
 
-Pour demarrer la calibration Doppler (TX periodique jusqu'au reset) :
+Persist a *custom* RADIOCONF when switching modulation (overrides the
+built-in default):
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --argosmod LDA2 --argosradioconf 0123456789ABCDEF0123456789ABCDEF
+
+Start a Doppler calibration (periodic TX until reset):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --satdp
 
 
-SMD (module satellite Kineis)
+SMD (Kineis satellite module)
 -----------------------------
 
-Pour provisionner les credentials SMD (ecriture via PARMW puis push vers le module) :
+Provision Argos credentials. The values are written to the local
+configuration store via ``--parmw``, then ``--satvf 1`` pushes them
+into the SMD hardware after verification:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --parmw ARGOS_DECID=<ID>,ARGOS_HEXID=<ADDR>,ARGOS_SECKEY=<KEY>,ARGOS_RADIOCONF=<CONF>
     pylinkit --device xx:xx:xx:xx:xx:xx --satvf 1
 
-Pour verifier les credentials (lecture seule) :
+Read-only verification of the credentials (config store vs hardware):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --satvf 0
 
-Pour la mise a jour firmware SMD :
+SMD firmware update:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --smdfw firmware.bin --smdfw_mode uart
+    pylinkit --device xx:xx:xx:xx:xx:xx --smdfw firmware.bin --smdfw_mode spi
 
-Pour controler le DFU SMD :
+SMD DFU control:
 
 .. code-block:: bash
 
@@ -246,23 +327,32 @@ Pour controler le DFU SMD :
     pylinkit --device xx:xx:xx:xx:xx:xx --smddfu version
     pylinkit --device xx:xx:xx:xx:xx:xx --smddfu exit
 
-Pour lancer un test SPI SMD :
+Run a SMD SPI test (14 A+ commands):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --smdtst
 
+Open a passthrough bridge to the KIM2 AT command interface
+(type ``+++<CR><LF>`` to exit):
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --kimbr
+
 
 LoRa
 ----
 
-Pour envoyer une transmission LoRa de test :
+Send a LoRa test transmission (payload size 1 to 222 bytes, depending
+on data rate):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --loratx 10
 
-Pour demarrer le bridge LoRa UART (acces direct aux commandes AT du RAK3172, quitter avec ``+++``) :
+Open a passthrough UART bridge to the RAK3172 AT command interface
+(type ``+++`` to exit):
 
 .. code-block:: bash
 
@@ -270,229 +360,257 @@ Pour demarrer le bridge LoRa UART (acces direct aux commandes AT du RAK3172, qui
 
 
 Salt Water Switch (SWS)
-------------------------
+-----------------------
 
-Pour lire le statut du SWS :
+Read the current SWS status:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --swsst
 
-Pour demarrer/arreter le mode test SWS (streaming temps reel avec indicateurs de surface) :
+Stream live SWS samples with surface-level indicators (Ctrl+C to stop):
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --swstst start
     pylinkit --device xx:xx:xx:xx:xx:xx --swstst stop
 
+Run a guided air/water calibration:
 
-RTC (horloge temps reel)
--------------------------
+.. code-block:: bash
 
-Pour lire l'heure du device :
+    pylinkit --device xx:xx:xx:xx:xx:xx --swscal start
+    pylinkit --device xx:xx:xx:xx:xx:xx --swscal cancel
+
+
+RTC (real-time clock)
+---------------------
+
+Read the device clock:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --rtcr
 
-Pour synchroniser l'heure avec l'UTC actuel :
+Set the device clock to the current host UTC:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --rtcw
 
-Pour definir un timestamp specifique :
+Set the device clock to a specific Unix timestamp:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --rtcw_timestamp 1678900000
 
 
-Calibration capteurs
---------------------
+Sensor calibration
+------------------
 
-Pour lire la calibration d'un capteur :
-
-.. code-block:: bash
-
-    pylinkit --device xx:xx:xx:xx:xx:xx --scalr pressure
-
-Pour ecrire une calibration :
+Read calibration:
 
 .. code-block:: bash
 
-    pylinkit --device xx:xx:xx:xx:xx:xx --scalw pressure --command 1 --value 1.5
+    pylinkit --device xx:xx:xx:xx:xx:xx --scalr pressure --command 0
+
+Write calibration:
+
+.. code-block:: bash
+
+    pylinkit --device xx:xx:xx:xx:xx:xx --scalw pressure --command 0 --value 1013.25
+
+Run ``--scalw <sensor>`` or ``--scalr <sensor>`` without ``--command``
+to print the per-sensor command reference (axl, pressure, ph, rtd, cdt,
+thermistor, sws).
 
 
-Mise a jour firmware (OTA)
---------------------------
+Firmware update (OTA)
+---------------------
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --fw firmware.img
 
-WARNING: l'operation peut prendre 5-6 minutes. Il est conseille de ne pas
-lancer cette commande si la batterie est faible et de ne pas reset le device
-pendant l'operation. La mise a jour ne prend effet qu'au prochain redemarrage.
+Notes:
+
+- The transfer typically takes 5 to 6 minutes over BLE.
+- Do **not** start the OTA on a low battery and do **not** reset the
+  device during the transfer.
+- The new firmware is applied at the next reboot.
+- Both ``.img`` (raw) and ``.zip`` (Nordic DFU package) are accepted.
 
 
 Pass prediction
 ---------------
 
-Pour envoyer des predictions de passage depuis un fichier JSON :
+Push pass predictions from a JSON file:
 
 .. code-block:: bash
 
     pylinkit --device xx:xx:xx:xx:xx:xx --paspw paspw.json
 
 
-Options generales
------------------
+Argos / CLS payload decoder
+---------------------------
 
-``--debug`` active les traces de debug pour toute commande.
+Decode a satellite payload received from CLS / Argos. This command runs
+**offline** — no device connection required.
 
-``--no-color`` desactive la coloration ANSI dans les logs.
+.. code-block:: bash
+
+    pylinkit --cls-decode 7b1e3eddc409c40292c87dbb8813880fb771027100000041 \
+             --cls-decode-type long
+
+Auto-detection rules (when ``--cls-decode-type`` is left as ``auto``):
+
+- 3-byte payload  -> VLDA4: ``rspb_doppler`` if header ``0b110``, else ``doppler``
+- 12-byte payload -> LDK ``short`` packet (header ``0b000``)
+- 16-byte payload -> LDK: ``rspb_short`` (header ``0b101``) or ``cloudlocate``
+  MEASC12 (header ``0b111``)
+- 24-byte payload -> LDA2: CRC8 verified, then dispatched on header to
+  ``fastloc`` (``0b010``), ``rspb_long`` (``0b100``), ``cloudlocate`` MEAS20
+  (``0b111``). ``long`` and ``sensor`` share the same first 75 bits and
+  cannot be auto-detected — pass ``--cls-decode-type long`` or
+  ``--cls-decode-type sensor`` explicitly.
+
+Sensor packets need the device's sensor enable list to be decoded
+fully (field widths depend on which sensors were active at TX time):
+
+.. code-block:: bash
+
+    pylinkit --cls-decode <HEX> --cls-decode-type sensor \
+             --cls-decode-sensors als,pressure,axl
+
+Allowed sensor names: ``als``, ``ph``, ``pressure``, ``sea_temp``,
+``thermistor``, ``axl``. Order matters and follows the firmware encode
+order (ALS, pH, Pressure, SeaTemp, Thermistor, AXL).
+
+CloudLocate payloads are **not** decoded — the raw 12-byte (MEASC12) or
+20-byte (MEAS20) u-blox blob is returned as a hex string under
+``ublox_payload_hex``, ready to be sent to the u-blox CloudLocate
+service for position resolution.
+
+LDA2 frame format
+~~~~~~~~~~~~~~~~~
+
+Every LDA2 frame embeds a CRC8 in byte 23. The SMD/KIM2 module does
+**not** add an over-the-air CRC for LDA2 (unlike LDK and VLDA4).
+Affected message types: ``long``, ``sensor``, ``fastloc``,
+``rspb_long``, ``cloudlocate`` MEAS20.
+
+Polynomial ``0x8380`` (= ``0x1070 << 3``), init = 0, MSB-first,
+computed over bytes 0 to 22. The decoder reports ``crc_valid`` for
+every LDA2 frame; ``False`` means the frame is corrupted and the
+decoded fields should not be trusted.
+
+Note on the long packet: ``ARGOS_DEPTH_PILE > 3`` produces multiple
+long packets to drain the FIFO (max 3 fixes per packet). When only a
+single fix sits in the trailing slot, the firmware downgrades it to a
+96-bit short packet on LDK.
+
+Python API:
+
+.. code-block:: python
+
+    from pylinkit.argos import decode, lda2_crc8, verify_lda2
+
+    result = decode(hex_or_bytes, msg_type='auto', sensor_mask={'als': True})
+    # result is a dict with message_type, modulation, decoded fields,
+    # and crc_valid (LDA2 only).
 
 
-Logging file format
-===================
-
-Log files are downloaded as binary and transcoded to JSON or CSV (if --format csv is passed).
-
-
-Example GPS
------------
-
-[
-    {
-        "batt_voltage": 4200,
-        "day": 1,
-        "fixType": 2,
-        "fix_day": 1,
-        "fix_hour": 13,
-        "fix_min": 26,
-        "fix_month": 3,
-        "fix_sec": 31,
-        "fix_year": 2021,
-        "gSpeed": 4,
-        "hAcc": 18700,
-        "hDOP": 1.3799999952316284,
-        "hMSL": 240,
-        "headAcc": 180.0,
-        "headMot": 0.0,
-        "headVeh": 0.0,
-        "height": 48232,
-        "hours": 13,
-        "iTOW": 134807995,
-        "lat": 51.3767097,
-        "log_t": "LOG_GPS",
-        "lon": -2.1183726,
-        "mins": 26,
-        "month": 3,
-        "nano": -4712236,
-        "numSV": 6,
-        "pDOP": 1.6799999475479126,
-        "sAcc": 263,
-        "secs": 31,
-        "tAcc": 4294967295,
-        "vAcc": 4116,
-        "vDOP": 0.9599999785423279,
-        "valid": 1,
-        "velD": 0,
-        "velE": -3,
-        "velN": 1,
-        "year": 2021
-    },
-	...
-]
-
-Example System
+Common options
 --------------
 
-[
-	...
-    {
-        "day": 1,
-        "hours": 13,
-        "log_t": "LOG_INFO",
-        "message": "GPSScheduler::task_process_gnss_data: lon=-2.118220 lat=51.376792 height=47992",
-        "mins": 42,
-        "month": 3,
-        "secs": 10,
-        "year": 2021
-    },
-    {
-        "day": 1,
-        "hours": 13,
-        "log_t": "LOG_INFO",
-        "message": "GPSScheduler::schedule_aquisition in 470 seconds",
-        "mins": 42,
-        "month": 3,
-        "secs": 10,
-        "year": 2021
-    },
-    {
-        "day": 1,
-        "hours": 13,
-        "log_t": "LOG_INFO",
-        "message": "ArgosScheduler::next_duty_cycle: found schedule: 1614606165",
-        "mins": 42,
-        "month": 3,
-        "secs": 10,
-        "year": 2021
-    },
-    {
-        "day": 1,
-        "hours": 13,
-        "log_t": "LOG_INFO",
-        "message": "ArticTransceiver::send_packet: sending message total_bits=176 tail_bits=7 burst_size=24",
-        "mins": 42,
-        "month": 3,
-        "secs": 52,
-        "year": 2021
-    },
-    {
-        "day": 1,
-        "hours": 13,
-        "log_t": "LOG_INFO",
-        "message": "ArgosScheduler::next_duty_cycle: found schedule: 1614606210",
-        "mins": 42,
-        "month": 3,
-        "secs": 56,
-        "year": 2021
-    },
-    {
-        "day": 1,
-        "hours": 13,
-        "log_t": "LOG_INFO",
-        "message": "ArticTransceiver::send_packet: sending message total_bits=176 tail_bits=7 burst_size=24",
-        "mins": 43,
-        "month": 3,
-        "secs": 38,
-        "year": 2021
-    },
-	...
-]
+- ``--debug`` enables debug-level logging
+- ``--no-color`` disables ANSI colors in the log viewer
+- ``--timeout SECONDS`` overrides the default 5 s connection timeout
+- ``--version`` prints the installed pylinkit version
 
 
+Python API
+==========
 
-Configuration file format
-=========================
+.. code-block:: python
 
-Configuration files are organised in sections accordingly:
+    from pylinkit import Scanner, Tracker, TransportType
 
-[PARAM]  # Optional params for --parmw command
-PROFILE_NAME = LIAM
-ARGOS_FREQ = 401.6599
-ARGOS_POWER = 500
-TR_NOM = 120
-ARGOS_MODE = DUTY_CYCLE
-NTRY_PER_MESSAGE = 1000
-DUTY_CYCLE = 16777215
-GNSS_EN = 1
-DLOC_ARG_NOM = 10
-ARGOS_DEPTH_PILE = 1
-GNSS_ACQ_TIMEOUT = 60
-ARGOS_HEXID = 4E7B54C
+    # BLE scan
+    for d in Scanner().scan():
+        print(d.address, d.name)
 
-A configuration should have a [PARAM] section.
+    # Connect over BLE
+    dev = Tracker('xx:xx:xx:xx:xx:xx')
+    dev.sync()
+    print(dev.get('BATT_VOLTAGE'))
+    dev.set({'GNSS_ACQ_TIMEOUT': 60})
+    dev.disconnect()
+
+    # Connect over USB CDC
+    dev = Tracker('COM3', transport_type=TransportType.USB, baudrate=115200)
+    print(dev.battery())
+    dev.disconnect()
+
+The ``Tracker`` class exposes a method per DTE command (``parmr``,
+``parmw``, ``dumpd``, ``erase``, ``rtcw``, ``argostx``, ``loratx``,
+``sensr``, ``swsst``, ``smddfu``, ``smdtst``, ``swscal``,
+``swstst_stream``, ``firmware_update``, ``smd_firmware_update``,
+``download_almanac``, ...). See ``pylinkit/__init__.py`` for the full
+surface.
+
+
+Log file decoding
+=================
+
+``pylinkit --dumpd ... --dumpd_type ...`` writes the raw binary stream
+returned by the firmware. Use the Python API to decode it.
+
+GPS / system / generic logs:
+
+.. code-block:: python
+
+    from pylinkit.protocol.dte_types import LOGFILE
+    raw = open('gpslog.bin', 'rb').read()
+    records = LOGFILE.decode(raw)
+    for r in records:
+        print(r)
+
+Pressure logs (CSV transcoded by firmware):
+
+.. code-block:: python
+
+    csv_text = dev.pressure_log_to_csv()
+
+Mortality logs (binary records):
+
+.. code-block:: python
+
+    csv_text = dev.mortality_log_to_csv()
+
+Salt-water-switch logs (CSV transcoded by firmware):
+
+.. code-block:: python
+
+    csv_text = dev.sws_log_to_csv()
+
+Sample GPS record::
+
+    {
+      "log_t": "LOG_GPS",
+      "year": 2021, "month": 3, "day": 1,
+      "hours": 13, "mins": 26, "secs": 31,
+      "lat": 51.3767097, "lon": -2.1183726,
+      "hMSL": 240, "hAcc": 18700,
+      "numSV": 6, "fixType": 2,
+      "valid": 1, "iTOW": 134807995,
+      "batt_voltage": 4200,
+      ...
+    }
+
+
+License
+=======
+
+pylinkit is distributed under the terms of the GNU General Public
+License v3.0 or later. See ``LICENSE`` for the full text.

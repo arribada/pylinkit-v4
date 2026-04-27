@@ -1,10 +1,14 @@
 import logging
 import argparse
 import sys
+import time
 import importlib.metadata
+from datetime import datetime, timezone
 
+from . import Scanner, Tracker
 from .transport import TransportType, create_transport
 from .transport.serial import SerialTransport
+from .protocol.dte_commands import DTECommands
 from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, create_wrapped_file_with_crc32, create_smd_wrapped_file, stm32_crc32
 
 erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws', 'mortality']
@@ -187,6 +191,25 @@ rtc_group.add_argument('--rtcw', action='store_true', required=False,
 rtc_group.add_argument('--rtcw_timestamp', type=int, required=False,
                        help='Set device RTC to specific unix timestamp')
 
+# === Argos / CLS payload decoder (offline, no device needed) ===
+cls_decode_types = ['auto', 'short', 'long', 'sensor', 'fastloc', 'doppler',
+                    'rspb_long', 'rspb_short', 'rspb_doppler', 'cloudlocate']
+cls_group = parser.add_argument_group('Argos/CLS payload decoder')
+cls_group.add_argument('--cls-decode', type=str, required=False, metavar='HEX',
+                       help='Decode an Argos/CLS payload (hex string). Auto-detects '
+                            'short/long/sensor/fastloc/doppler/rspb_*/cloudlocate '
+                            'from size + header bits. CloudLocate u-blox blob is '
+                            'returned raw (not decoded).')
+cls_group.add_argument('--cls-decode-type', type=str, choices=cls_decode_types,
+                       default='auto', required=False,
+                       help='Force a specific message type (default: auto). '
+                            "Use 'long' or 'sensor' for ambiguous LDA2 24-byte frames.")
+cls_group.add_argument('--cls-decode-sensors', type=str, required=False, metavar='LIST',
+                       help='Comma-separated sensor list active when the sensor packet '
+                            'was emitted (e.g. "als,pressure,axl"). Required to fully '
+                            'decode --cls-decode-type sensor. Allowed names: '
+                            'als, ph, pressure, sea_temp, thermistor, axl.')
+
 # === Misc ===
 parser.add_argument('--debug', action='store_true', required=False, help='Turn on debug trace')
 parser.add_argument('--version', action='version', version='%(prog)s ' + importlib.metadata.version('pylinkit'))
@@ -307,16 +330,38 @@ def setup_logging(enabled, level):
 
 
 def main():
-    args = parser.parse_args()
-
-    if not any(vars(args).values()):
+    # Show help when invoked with no arguments. argparse sets defaults that are
+    # truthy (e.g. --baudrate=115200) so we cannot rely on `any(vars(args))`.
+    if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(2)
+
+    args = parser.parse_args()
 
     if args.debug:
         setup_logging(True, 'debug')
     else:
         setup_logging(True, 'info')
+
+    # --- Argos/CLS payload decoder (offline, no device needed) ---
+    if args.cls_decode:
+        from . import argos
+        sensor_mask = None
+        if args.cls_decode_sensors:
+            names = [s.strip().lower() for s in args.cls_decode_sensors.split(',') if s.strip()]
+            sensor_mask = {n: True for n in names}
+        try:
+            result = argos.decode(
+                args.cls_decode,
+                msg_type=args.cls_decode_type,
+                sensor_mask=sensor_mask,
+            )
+        except ValueError as e:
+            print(f"cls-decode FAILED: {e}")
+            sys.exit(1)
+        import json
+        print(json.dumps(result, indent=2, default=str))
+        sys.exit(0)
 
     # --- List serial ports ---
     if args.list_ports:
@@ -331,8 +376,7 @@ def main():
 
     # --- Scan for BLE devices ---
     if args.scan:
-        import pylinkit
-        scan_dev = pylinkit.Scanner()
+        scan_dev = Scanner()
         result = scan_dev.scan()
         for x in result:
             print(x.address, x.name)
@@ -354,8 +398,7 @@ def main():
             address = args.device
             if not address:
                 # Auto-scan and select
-                import pylinkit
-                scan_dev = pylinkit.Scanner()
+                scan_dev = Scanner()
                 result = scan_dev.scan()
                 if not result:
                     print("No BLE devices found")
@@ -374,10 +417,8 @@ def main():
             if args.ble_trace and address:
                 response = input("\nIs the device configured with DEBUG_OUTPUT_MODE = BLE_NUS? (y/n): ")
                 if response.lower() != 'y':
-                    import time
                     print(f"\nConfiguring device {address} for BLE trace output...")
-                    import pylinkit
-                    temp_dev = pylinkit.Tracker(address)
+                    temp_dev = Tracker(address)
                     temp_dev.sync()
                     temp_dev.set({'DEBUG_OUTPUT_MODE': 'BLE_NUS'})
                     print("Configuration updated: DEBUG_OUTPUT_MODE = BLE_NUS")
@@ -414,8 +455,7 @@ def main():
         if not address:
             parser.error(f'--port is required for {args.transport} transport')
 
-    import pylinkit
-    dev = pylinkit.Tracker(
+    dev = Tracker(
         address,
         transport_type=transport_type,
         timeout=args.timeout or 5.0,
@@ -423,7 +463,6 @@ def main():
     )
 
     if args.parmr:
-        from datetime import datetime, timezone
         dev.sync()
         params = dev.get()
         # Format unix timestamps as DD/MM/YYYY HH:MM:SS
@@ -735,8 +774,14 @@ def main():
     if args.argostx:
         mod = args.argosmod or 'LDA2'
         if args.argosmod is not None:
-            print(f"WARNING: --argosmod {args.argosmod} will update RADIOCONF (IDP14) on the SMD module")
-            dev.update_radioconf(args.argosmod)
+            if args.argosradioconf:
+                print(f"WARNING: --argosmod {args.argosmod} will persist custom RADIOCONF "
+                      f"(IDP14 = {args.argosradioconf}) on the SMD module")
+                dev.update_radioconf(args.argosmod, custom=args.argosradioconf)
+            else:
+                print(f"WARNING: --argosmod {args.argosmod} will persist the default RADIOCONF "
+                      f"(IDP14) for {args.argosmod} on the SMD module")
+                dev.update_radioconf(args.argosmod)
         dev.argostx(mod, args.argossize, args.argosradioconf, args.argostcxo)
 
     if args.loratx is not None:
@@ -863,7 +908,6 @@ def main():
 
     if args.swsst:
         try:
-            from .protocol.dte_commands import DTECommands
             r = dev.swsst()
             level = r['surface_level']
             level_name = DTECommands.SURFACE_LEVEL_NAMES.get(level, f"UNKNOWN({level})")
@@ -976,7 +1020,6 @@ def main():
             print(f"SWS Calibration FAILED: {e}")
 
     if args.rtcr:
-        from datetime import datetime, timezone
         try:
             status = dev._dte.statr(['RTC_CURRENT_TIME'])
             ts = int(status.get('RTC_CURRENT_TIME', 0))
@@ -989,11 +1032,10 @@ def main():
             print(f"RTC read FAILED: {e}")
 
     if args.rtcw or args.rtcw_timestamp is not None:
-        from datetime import datetime, timezone
         try:
             ts = args.rtcw_timestamp
             dev.rtcw(ts)
-            actual = ts if ts is not None else int(__import__('time').time())
+            actual = ts if ts is not None else int(time.time())
             dt = datetime.fromtimestamp(actual, tz=timezone.utc)
             print(f"RTC set to: {dt.isoformat()} (unix: {actual})")
         except Exception as e:

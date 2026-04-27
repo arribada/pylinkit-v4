@@ -404,7 +404,7 @@ class PASPW():
             for x in entry['constellationStatusBurst']:
                 csb = entry['constellationStatusBurst'][x]
                 if len(csb) & 1:
-                    logger.warn('Stuffing CSB record %s with 0000 missing bits', x)
+                    logger.warning('Stuffing CSB record %s with 0000 missing bits', x)
                     csb += '0'
                 hex_bytes += csb
         logger.debug('Allcast packet: %s', hex_bytes)
