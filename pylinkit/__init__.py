@@ -1,4 +1,4 @@
-__version__ = '4.1.0'
+__version__ = '4.1.1'
 
 from .transport import TransportType, create_transport
 from .transport.ble import BLETransport

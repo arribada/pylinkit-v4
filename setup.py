@@ -5,7 +5,7 @@ with open('README.rst', encoding='utf-8') as f:
 
 setup(
     name='pylinkit',
-    version='4.1.0',
+    version='4.1.1',
     description='Python LinkIt V4 tracker configuration tool (BLE / USB / UART)',
     long_description=long_description,
     long_description_content_type='text/x-rst',
