@@ -193,15 +193,41 @@ def decode_short(payload12):
 
 
 def decode_long(payload24):
-    """Long Packet (LDA2, 24 bytes, no header). Up to 3 GPS fixes.
+    """Long Packet (LDA2, 24 bytes, header 0b000). Up to 3 GPS fixes.
 
-    Includes CRC8 verification.
+    The header value (``0b000``) is shared with the Short Packet; receivers
+    disambiguate by frame size (12 B = Short, 24 B = Long).
+
+    Layout::
+
+        bits 0..2     header (0b000)
+             3..7     day
+             8..12    hour
+             13..18   minute
+             19..39   GPS[0] latitude
+             40..61   GPS[0] longitude
+             62..68   GPS[0] speed
+             69       out_of_zone
+             70..76   battery
+             77       low_battery
+             78..81   delta_time_loc (4)
+             82..102  GPS[1] latitude
+             103..124 GPS[1] longitude
+             125..145 GPS[2] latitude
+             146..167 GPS[2] longitude
+             168..183 reserved (16, zero-padded)
+             184..191 CRC8
+
+    Includes LDA2 CRC8 verification.
     """
     payload24 = bytes(payload24)
     if len(payload24) != 24:
         raise ValueError(f'long packet expects 24 bytes, got {len(payload24)}')
     crc_valid = verify_lda2(payload24)
     r = BitReader(payload24)
+    header = r.read(3)
+    if header != 0b000:
+        raise ValueError(f'long: expected header 0b000, got {bin(header)}')
     day = r.read(5)
     hour = r.read(5)
     minute = r.read(6)
@@ -221,6 +247,7 @@ def decode_long(payload24):
         'message_type': 'long',
         'modulation': 'LDA2',
         'crc_valid': crc_valid,
+        'header': header,
         'day': day,
         'hour': hour,
         'minute': minute,
@@ -565,15 +592,12 @@ def decode(payload, msg_type='auto', axl_g_range=16):
         - 3  bytes -> VLDA4: header 0b110 -> rspb_doppler, else doppler
         - 12 bytes -> LDK:   short packet (header 0b000)
         - 16 bytes -> LDK:   header 0b101 -> rspb_short, 0b111 -> cloudlocate (MEASC12)
-        - 24 bytes -> LDA2:  header 0b001 -> sensor, 0b010 -> fastloc,
-                             0b100 -> rspb_long, 0b111 -> cloudlocate (MEAS20).
-                             Long Packet has no header (Day fills bits 0..4),
-                             so a 24-byte payload with another header value
-                             cannot be auto-detected and must be passed with
-                             ``msg_type='long'``. Conversely a Long Packet
-                             whose Day starts with the bit pattern of an
-                             above header would be misidentified — disambiguate
-                             via the explicit ``msg_type``.
+        - 24 bytes -> LDA2:  header 0b000 -> long, 0b001 -> sensor,
+                             0b010 -> fastloc, 0b100 -> rspb_long,
+                             0b111 -> cloudlocate (MEAS20).
+
+    Short and Long packets share header 0b000; the size disambiguates
+    (12 bytes = short, 24 bytes = long).
     """
     data = _coerce_payload(payload)
     if msg_type not in MSG_TYPES:
@@ -619,6 +643,8 @@ def decode(payload, msg_type='auto', axl_g_range=16):
         )
     if size == 24:
         header = data[0] >> 5
+        if header == 0b000:
+            return decode_long(data)
         if header == 0b001:
             return decode_sensor(data, axl_g_range=axl_g_range)
         if header == 0b010:
@@ -628,9 +654,8 @@ def decode(payload, msg_type='auto', axl_g_range=16):
         if header == 0b111:
             return decode_cloudlocate(data)
         raise ValueError(
-            f'auto-detect: 24-byte payload with header 0b{header:03b} has no '
-            f"typed match. It is most likely a Long Packet -- pass "
-            f"msg_type='long' explicitly."
+            f'auto-detect: 24-byte payload with header 0b{header:03b} '
+            f'matches no known LDA2 message type'
         )
     raise ValueError(
         f'auto-detect: unsupported payload size {size} bytes '

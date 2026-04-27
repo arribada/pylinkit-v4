@@ -469,9 +469,13 @@ Auto-detection rules (when ``--cls-decode-type`` is left as ``auto``):
 - 16-byte payload -> LDK: ``rspb_short`` (header ``0b101``) or ``cloudlocate``
   MEASC12 (header ``0b111``)
 - 24-byte payload -> LDA2: CRC8 verified, then dispatched on header to
-  ``sensor`` (``0b001``), ``fastloc`` (``0b010``), ``rspb_long`` (``0b100``),
-  ``cloudlocate`` MEAS20 (``0b111``). ``long`` packets carry no header
-  (Day fills bits 0..4) and must be passed with ``--cls-decode-type long``.
+  ``long`` (``0b000``), ``sensor`` (``0b001``), ``fastloc`` (``0b010``),
+  ``rspb_long`` (``0b100``), ``cloudlocate`` MEAS20 (``0b111``).
+
+Short and Long packets share header ``0b000``; the 12-byte vs 24-byte size
+disambiguates them. Auto-detect on a 24-byte LDA2 frame is now fully
+deterministic — no need to pass ``--cls-decode-type`` unless you want to
+override.
 
 Sensor Packet (Type 1) is **self-describing** since this firmware version:
 the embedded 5-bit ``sensor_mask`` (bits 78..82, MSB-first
