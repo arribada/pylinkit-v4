@@ -202,13 +202,9 @@ cls_group.add_argument('--cls-decode', type=str, required=False, metavar='HEX',
                             'returned raw (not decoded).')
 cls_group.add_argument('--cls-decode-type', type=str, choices=cls_decode_types,
                        default='auto', required=False,
-                       help='Force a specific message type (default: auto). '
-                            "Use 'long' or 'sensor' for ambiguous LDA2 24-byte frames.")
-cls_group.add_argument('--cls-decode-sensors', type=str, required=False, metavar='LIST',
-                       help='Comma-separated sensor list active when the sensor packet '
-                            'was emitted (e.g. "als,pressure,axl"). Required to fully '
-                            'decode --cls-decode-type sensor. Allowed names: '
-                            'als, ph, pressure, sea_temp, thermistor, axl.')
+                       help="Force a specific message type (default: auto). "
+                            "Use 'long' for 24-byte LDA2 frames whose first 3 "
+                            "bits do not match a known typed header.")
 
 # === Misc ===
 parser.add_argument('--debug', action='store_true', required=False, help='Turn on debug trace')
@@ -346,16 +342,8 @@ def main():
     # --- Argos/CLS payload decoder (offline, no device needed) ---
     if args.cls_decode:
         from . import argos
-        sensor_mask = None
-        if args.cls_decode_sensors:
-            names = [s.strip().lower() for s in args.cls_decode_sensors.split(',') if s.strip()]
-            sensor_mask = {n: True for n in names}
         try:
-            result = argos.decode(
-                args.cls_decode,
-                msg_type=args.cls_decode_type,
-                sensor_mask=sensor_mask,
-            )
+            result = argos.decode(args.cls_decode, msg_type=args.cls_decode_type)
         except ValueError as e:
             print(f"cls-decode FAILED: {e}")
             sys.exit(1)

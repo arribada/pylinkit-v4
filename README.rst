@@ -469,22 +469,28 @@ Auto-detection rules (when ``--cls-decode-type`` is left as ``auto``):
 - 16-byte payload -> LDK: ``rspb_short`` (header ``0b101``) or ``cloudlocate``
   MEASC12 (header ``0b111``)
 - 24-byte payload -> LDA2: CRC8 verified, then dispatched on header to
-  ``fastloc`` (``0b010``), ``rspb_long`` (``0b100``), ``cloudlocate`` MEAS20
-  (``0b111``). ``long`` and ``sensor`` share the same first 75 bits and
-  cannot be auto-detected — pass ``--cls-decode-type long`` or
-  ``--cls-decode-type sensor`` explicitly.
+  ``sensor`` (``0b001``), ``fastloc`` (``0b010``), ``rspb_long`` (``0b100``),
+  ``cloudlocate`` MEAS20 (``0b111``). ``long`` packets carry no header
+  (Day fills bits 0..4) and must be passed with ``--cls-decode-type long``.
 
-Sensor packets need the device's sensor enable list to be decoded
-fully (field widths depend on which sensors were active at TX time):
+Sensor Packet (Type 1) is **self-describing** since this firmware version:
+the embedded 5-bit ``sensor_mask`` (bits 78..82, MSB-first
+``ALS|PH|Pressure|SeaTemp|AXL``) tells the decoder which fields are
+present. No external sensor list is needed.
 
-.. code-block:: bash
+The decoder reports the parsed mask under ``sensor_mask`` (raw int) and
+``sensor_mask_bits`` (named booleans), and decodes the corresponding
+fields in the order ALS → PH → Pressure → SeaTemp → AXL.
 
-    pylinkit --cls-decode <HEX> --cls-decode-type sensor \
-             --cls-decode-sensors als,pressure,axl
+AXL handling has two deterministic rules:
 
-Allowed sensor names: ``als``, ``ph``, ``pressure``, ``sea_temp``,
-``thermistor``, ``axl``. Order matters and follows the firmware encode
-order (ALS, pH, Pressure, SeaTemp, Thermistor, AXL).
+- ``axl_temp_c`` is included only when no other temperature source is in
+  the packet (``not (has_pressure or has_seatemp)``).
+- ``axl_activity`` may be truncated when the bit budget after XYZ is
+  < 8 bits. The decoder reports the actual width under
+  ``axl_activity_resolution_bits``; the value is left-aligned (high-bit
+  padded with zeros), so a 6-bit reading produces an 8-bit value with
+  step 4 (0..252) instead of step 1 (0..255).
 
 CloudLocate payloads are **not** decoded — the raw 12-byte (MEASC12) or
 20-byte (MEAS20) u-blox blob is returned as a hex string under

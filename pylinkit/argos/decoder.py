@@ -236,30 +236,62 @@ def decode_long(payload24):
     }
 
 
-def decode_sensor(payload24, sensor_mask=None, axl_g_range=16):
-    """Type 1 - Sensor Packet (LDA2, 24 bytes, no header in payload).
+def decode_sensor(payload24, axl_g_range=16):
+    """Type 1 - Sensor Packet v3 (LDA2, 24 bytes, header 0b001).
 
-    The set of sensors actually present is *not* embedded in the packet:
-    the decoder needs the device's sensor enable mask to know which fields
-    to read. ``sensor_mask`` is a dict with the sensors that were enabled
-    when the packet was emitted, e.g.::
+    Self-describing: the embedded 5-bit ``sensor_mask`` (bits 78..82) tells
+    the decoder which sensor fields are present. No external mask needed.
 
-        {'als': True, 'ph': False, 'pressure': True, 'sea_temp': False,
-         'thermistor': False, 'axl': True}
+    Layout::
 
-    If ``sensor_mask`` is None, the decoder returns only the base fields and
-    leaves the sensor bytes as raw hex in ``sensor_bits_remaining``.
-    Includes CRC8 verification.
+        bits 0..2     header (0b001)
+             3..7     day            (5)
+             8..12    hour           (5)
+             13..18   minute         (6)
+             19..39   latitude       (21)
+             40..61   longitude      (22)
+             62..68   speed          (7)
+             69       out_of_zone    (1)
+             70..76   battery        (7)
+             77       low_battery    (1)
+             78..82   sensor_mask    (5)  MSB-first: ALS|PH|Pressure|SeaTemp|AXL
+             83..     sensor data, in order ALS -> PH -> Pressure -> SeaTemp -> AXL
+             184..191 CRC8
+
+    Sensor field sizes:
+
+    - ALS: 17 bits raw lux
+    - PH: 14 bits, decoded as ``raw / 1000.0``
+    - Pressure: 29 bits = 15 (hPa*1000) + 14 ((C+40)*100)
+    - SeaTemp/Thermistor (shared slot): 21 bits, decoded as ``raw/1000.0 - 126``
+    - AXL: variable, see rules below
+
+    AXL temperature rule (deterministic):
+        ``has_other_temp = pressure_bit OR seatemp_bit``.
+        AXL temp (14 bits) is included only when ``not has_other_temp``.
+
+    AXL activity truncation:
+        After XYZ, the firmware reads ``min(8, 184 - position)`` bits and
+        left-aligns the value: ``activity = raw << (8 - bits_read)``.
+        ``axl_activity_resolution_bits`` reports the actual bit width
+        (< 8 means reduced resolution).
+
+    Includes LDA2 CRC8 verification.
     """
     payload24 = bytes(payload24)
     if len(payload24) != 24:
         raise ValueError(f'sensor packet expects 24 bytes, got {len(payload24)}')
     crc_valid = verify_lda2(payload24)
     r = BitReader(payload24)
+    header = r.read(3)
+    if header != 0b001:
+        raise ValueError(f'sensor: expected header 0b001, got {bin(header)}')
+
     out = {
         'message_type': 'sensor',
         'modulation': 'LDA2',
         'crc_valid': crc_valid,
+        'header': header,
         'day': r.read(5),
         'hour': r.read(5),
         'minute': r.read(6),
@@ -269,53 +301,54 @@ def decode_sensor(payload24, sensor_mask=None, axl_g_range=16):
         'out_of_zone': bool(r.read(1)),
         'battery_mv': _decode_battery(r.read(7)),
         'low_battery': bool(r.read(1)),
-        'crc8': payload24[23],
     }
 
-    # Bit budget: 184 (CRC8 reserves the last 8). Bits 75..183 hold sensors.
-    if sensor_mask is None:
-        out['sensor_bits_remaining'] = payload24[9:23].hex()
-        out['sensors_decoded'] = False
-        return out
+    mask = r.read(5)
+    has_als      = bool(mask & 0b10000)
+    has_ph       = bool(mask & 0b01000)
+    has_pressure = bool(mask & 0b00100)
+    has_seatemp  = bool(mask & 0b00010)
+    has_axl      = bool(mask & 0b00001)
+
+    out['sensor_mask'] = mask
+    out['sensor_mask_bits'] = {
+        'als': has_als,
+        'ph': has_ph,
+        'pressure': has_pressure,
+        'sea_temp': has_seatemp,
+        'axl': has_axl,
+    }
 
     sensors = {}
-    bits_left = 184 - r.position
-
-    def _enabled(name):
-        return bool(sensor_mask.get(name, False))
-
-    if _enabled('als') and bits_left >= 17:
+    if has_als:
         sensors['als_lux'] = r.read(17)
-        bits_left -= 17
-    if _enabled('ph') and bits_left >= 14:
+    if has_ph:
         sensors['ph'] = _decode_ph(r.read(14))
-        bits_left -= 14
-    if _enabled('pressure') and bits_left >= 29:
+    if has_pressure:
         sensors['pressure_hpa'] = _decode_pressure_hpa(r.read(15))
         sensors['pressure_temp_c'] = _decode_temp_offset40(r.read(14))
-        bits_left -= 29
-    if _enabled('sea_temp') and bits_left >= 21:
-        sensors['sea_temp_c'] = _decode_sea_temp(r.read(21))
-        bits_left -= 21
-    if _enabled('thermistor') and bits_left >= 14:
-        sensors['thermistor_c'] = _decode_temp_offset40(r.read(14))
-        bits_left -= 14
-    if _enabled('axl'):
-        # AXL temp may be dropped if budget is tight (firmware behavior)
-        if bits_left >= 14 + 15 + 15 + 15 + 8:
+    if has_seatemp:
+        sensors['sea_temp_or_thermistor_c'] = _decode_sea_temp(r.read(21))
+    if has_axl:
+        # AXL die temperature is included only when no other temp source is in
+        # the packet (deterministic, no ambiguity for the decoder).
+        if not (has_pressure or has_seatemp):
             sensors['axl_temp_c'] = _decode_temp_offset40(r.read(14))
-            bits_left -= 14
+        sensors['axl_x_g'] = _decode_axl_axis(r.read(15), axl_g_range)
+        sensors['axl_y_g'] = _decode_axl_axis(r.read(15), axl_g_range)
+        sensors['axl_z_g'] = _decode_axl_axis(r.read(15), axl_g_range)
+        bits_left = max(0, 184 - r.position)
+        activity_bits = min(8, bits_left)
+        if activity_bits > 0:
+            raw = r.read(activity_bits)
+            sensors['axl_activity'] = raw << (8 - activity_bits)
+            sensors['axl_activity_resolution_bits'] = activity_bits
         else:
-            sensors['axl_temp_c'] = None  # firmware dropped it
-        if bits_left >= 15 + 15 + 15 + 8:
-            sensors['axl_x_g'] = _decode_axl_axis(r.read(15), axl_g_range)
-            sensors['axl_y_g'] = _decode_axl_axis(r.read(15), axl_g_range)
-            sensors['axl_z_g'] = _decode_axl_axis(r.read(15), axl_g_range)
-            sensors['axl_activity'] = r.read(8)
-            bits_left -= 15 + 15 + 15 + 8
+            sensors['axl_activity'] = None
+            sensors['axl_activity_resolution_bits'] = 0
 
     out['sensors'] = sensors
-    out['sensors_decoded'] = True
+    out['crc8'] = payload24[23]
     return out
 
 
@@ -521,7 +554,7 @@ def _coerce_payload(payload):
     return bytes(payload)
 
 
-def decode(payload, msg_type='auto', sensor_mask=None, axl_g_range=16):
+def decode(payload, msg_type='auto', axl_g_range=16):
     """Decode an Argos satellite payload.
 
     payload: bytes or hex string (whitespace, ``:`` and ``-`` accepted)
@@ -532,15 +565,15 @@ def decode(payload, msg_type='auto', sensor_mask=None, axl_g_range=16):
         - 3  bytes -> VLDA4: header 0b110 -> rspb_doppler, else doppler
         - 12 bytes -> LDK:   short packet (header 0b000)
         - 16 bytes -> LDK:   header 0b101 -> rspb_short, 0b111 -> cloudlocate (MEASC12)
-        - 24 bytes -> LDA2:  header 0b010 -> fastloc, 0b100 -> rspb_long,
-                             0b111 -> cloudlocate (MEAS20).
-                             Long Packet and Sensor Packet share the same
-                             first 75 bits and cannot be distinguished from
-                             the bytes alone -- pass msg_type='long' or
-                             'sensor' explicitly.
-
-    Sensor packets need the device's sensor enable mask to be decoded
-    fully (see decode_sensor for the schema).
+        - 24 bytes -> LDA2:  header 0b001 -> sensor, 0b010 -> fastloc,
+                             0b100 -> rspb_long, 0b111 -> cloudlocate (MEAS20).
+                             Long Packet has no header (Day fills bits 0..4),
+                             so a 24-byte payload with another header value
+                             cannot be auto-detected and must be passed with
+                             ``msg_type='long'``. Conversely a Long Packet
+                             whose Day starts with the bit pattern of an
+                             above header would be misidentified — disambiguate
+                             via the explicit ``msg_type``.
     """
     data = _coerce_payload(payload)
     if msg_type not in MSG_TYPES:
@@ -551,7 +584,7 @@ def decode(payload, msg_type='auto', sensor_mask=None, axl_g_range=16):
     if msg_type == 'long':
         return decode_long(data)
     if msg_type == 'sensor':
-        return decode_sensor(data, sensor_mask=sensor_mask, axl_g_range=axl_g_range)
+        return decode_sensor(data, axl_g_range=axl_g_range)
     if msg_type == 'fastloc':
         return decode_fastloc(data)
     if msg_type == 'doppler':
@@ -586,6 +619,8 @@ def decode(payload, msg_type='auto', sensor_mask=None, axl_g_range=16):
         )
     if size == 24:
         header = data[0] >> 5
+        if header == 0b001:
+            return decode_sensor(data, axl_g_range=axl_g_range)
         if header == 0b010:
             return decode_fastloc(data)
         if header == 0b100:
@@ -593,11 +628,11 @@ def decode(payload, msg_type='auto', sensor_mask=None, axl_g_range=16):
         if header == 0b111:
             return decode_cloudlocate(data)
         raise ValueError(
-            f'auto-detect: 24-byte payload with header 0b{header:03b} is ambiguous '
-            f'(Long Packet vs Sensor Packet share the same prefix). '
-            f"Pass msg_type='long' or msg_type='sensor' explicitly."
+            f'auto-detect: 24-byte payload with header 0b{header:03b} has no '
+            f"typed match. It is most likely a Long Packet -- pass "
+            f"msg_type='long' explicitly."
         )
     raise ValueError(
         f'auto-detect: unsupported payload size {size} bytes '
-        f'(expected 3 / 16 / 24)'
+        f'(expected 3 / 12 / 16 / 24)'
     )
