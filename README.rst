@@ -9,6 +9,7 @@ pylinkit talks to the device using the DTE command protocol over BLE
 front-end (``pylinkit``) and a Python API (``pylinkit.Scanner``,
 ``pylinkit.Tracker``).
 
+Please used BLE version, USB-CDC is still work in progress.
 
 Installation
 ============
