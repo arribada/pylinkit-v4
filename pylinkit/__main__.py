@@ -77,6 +77,11 @@ cmd_group.add_argument('--dumpd_type', type=str, choices=dumpd_options, required
                        help='Specified log file')
 cmd_group.add_argument('--pwron', type=str, choices=pwr_options, required=False,
                        help='Power on the device (GNSS, SENSORS, SATELLITE)')
+cmd_group.add_argument('--charge-coincell', action='store_true', required=False,
+                       help='Charge the coincell: keep BLE link alive (firmware idle '
+                            'timeout is 20 min) and PWRON GNSS so the GNSS rail '
+                            'sources the coincell trickle current. Shows elapsed time. '
+                            'Ctrl+C stops, then PWRON OFF is sent.')
 cmd_group.add_argument('--ano', type=argparse.FileType('rb'), required=False,
                        help='GNSS AssistNow Offline filename')
 cmd_group.add_argument('--ano-download', action='store_true', required=False,
@@ -469,6 +474,30 @@ def main():
         cfg.write(args.parmr)
         args.parmr.close()
 
+        # LDP03 (LED HRS_24 cutoff) — auto-anchored by firmware to (now + 24h)
+        # at first GNSS fix. Display delta vs RTC for debug.
+        if 'LED_HRS24_RTC_CUTOFF' in params:
+            cutoff_str = params['LED_HRS24_RTC_CUTOFF']
+            print(f"LED HRS_24 cutoff (LDP03): {cutoff_str}")
+            try:
+                cutoff = datetime.strptime(cutoff_str, '%d/%m/%Y %H:%M:%S').replace(tzinfo=timezone.utc)
+                if cutoff.year <= 1970:
+                    print("  Status: Not yet anchored — waiting for first GNSS fix")
+                else:
+                    rtc_ts = int(params.get('RTC_CURRENT_TIME', 0))
+                    now = datetime.fromtimestamp(rtc_ts, tz=timezone.utc) if rtc_ts > 0 else datetime.now(timezone.utc)
+                    delta = (cutoff - now).total_seconds()
+                    if delta >= 0:
+                        h, rem = divmod(int(delta), 3600)
+                        m, _ = divmod(rem, 60)
+                        print(f"  Status: LEDs ON for {h}h {m}m more")
+                    else:
+                        h, rem = divmod(int(-delta), 3600)
+                        m, _ = divmod(rem, 60)
+                        print(f"  Status: LEDs OFF since {h}h {m}m ago")
+            except ValueError:
+                pass
+
     if args.poll and args.value is not None:
         dev.poll(args.poll, int(args.value))
 
@@ -546,6 +575,44 @@ def main():
 
     if args.pwron:
         dev.pwron(args.pwron)
+
+    if args.charge_coincell:
+        # Keep BLE alive (firmware idle timeout = 20 min) and hold GNSS rail ON
+        # to feed the supercap/coincell trickle. Loop is unbounded; user stops
+        # with Ctrl+C, after which we send PWRON OFF.
+        KEEPALIVE_PERIOD_S = 5 * 60        # < firmware 20-min idle timeout
+        UI_REFRESH_S = 1.0
+        try:
+            dev.pwron('gnss')
+        except Exception as e:
+            print(f"PWRON GNSS FAILED: {e}")
+        else:
+            print("Coincell charging: GNSS rail ON, BLE keepalive every 5 min.")
+            print("Press Ctrl+C to stop.")
+            t0 = time.time()
+            last_ka = t0
+            try:
+                while True:
+                    elapsed = int(time.time() - t0)
+                    h, rem = divmod(elapsed, 3600)
+                    m, s = divmod(rem, 60)
+                    sys.stdout.write(f"\r  elapsed: {h:02d}:{m:02d}:{s:02d}   ")
+                    sys.stdout.flush()
+                    if time.time() - last_ka >= KEEPALIVE_PERIOD_S:
+                        try:
+                            dev._dte.parmr(['POT06'])  # cheap read, resets idle timer
+                        except Exception as e:
+                            sys.stdout.write(f"\n  keepalive FAILED: {e}\n")
+                        last_ka = time.time()
+                    time.sleep(UI_REFRESH_S)
+            except KeyboardInterrupt:
+                sys.stdout.write("\n")
+            finally:
+                try:
+                    dev.pwron('off')
+                    print("Coincell charging: stopped (PWRON OFF).")
+                except Exception as e:
+                    print(f"PWRON OFF FAILED: {e}")
 
     if args.scalw:
         if args.command is None:
