@@ -178,11 +178,18 @@ class ARGOSMODULATION():
 
 
 class DEPTHPILE():
+    # Index -> firmware value mapping. -1 entries are reserved/unused indices.
     allowed = [-1,1,2,3,4,-1,-1,-1,8,12,16,20,24]
+    valid = (1, 2, 3, 4, 8, 12, 16, 20, 24)
 
     @staticmethod
     def encode(value):
-        return str(DEPTHPILE.allowed.index(int(value)))
+        v = int(value)
+        if v not in DEPTHPILE.valid:
+            raise ValueError(
+                f'DEPTH_PILE value {v} is invalid; allowed: {DEPTHPILE.valid}'
+            )
+        return str(DEPTHPILE.allowed.index(v))
 
     @staticmethod
     def decode(value):

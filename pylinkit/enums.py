@@ -79,6 +79,30 @@ class ArgosModulation(IntEnum):
     VLDA4 = 2
 
 
+class ArgosDepthPile(IntEnum):
+    """ARGOS_DEPTH_PILE (ARP16) allowed values: number of last GPS fixes
+    retransmitted per cycle. Same enum applies to LB_ARGOS_DEPTH_PILE (LBP08)
+    and ZONE_ARGOS_DEPTH_PILE (ZOP08)."""
+    DEPTH_PILE_1 = 1
+    DEPTH_PILE_2 = 2
+    DEPTH_PILE_3 = 3
+    DEPTH_PILE_4 = 4
+    DEPTH_PILE_8 = 8
+    DEPTH_PILE_12 = 12
+    DEPTH_PILE_16 = 16
+    DEPTH_PILE_20 = 20
+    DEPTH_PILE_24 = 24
+
+
+DEPTH_PILE_VALUES = tuple(m.value for m in ArgosDepthPile)
+
+
+def depth_pile_label(radio_mode: str) -> str:
+    """UI label for *_ARGOS_DEPTH_PILE params. The DTE key never changes;
+    only the user-facing string adapts to the active radio backend."""
+    return "LoRa depth pile" if str(radio_mode).lower() == "lora" else "Argos depth pile"
+
+
 # Symmetric swap between KineisModulation and SmdArgosModulation (byte 9 of radioconf).
 # LDK and LDA2 are swapped: Kineis LDK=0 <-> SMD 1, Kineis LDA2=1 <-> SMD 0, VLDA4=2 unchanged.
 KINEIS_TO_SMD_MOD = {0: 1, 1: 0, 2: 2}
