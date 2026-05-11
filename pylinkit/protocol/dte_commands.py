@@ -250,6 +250,20 @@ class DTECommands:
         )
         self._decode_response(resp)
 
+    def gnssbckp(self, duration_s):
+        """GNSS backup-cell (V_BCKP) charge. duration_s > 0 starts a charge
+        for that many seconds; duration_s == 0 stops a running charge.
+        Firmware drives the rail on its own — no BLE keepalive required.
+        Requires firmware config version >= 0x1D (GNP47 family).
+        Range: [0, 86400]."""
+        d = int(duration_s)
+        if not 0 <= d <= 86400:
+            raise ValueError(f'GNSSBCKP duration {d}s out of range [0, 86400]')
+        resp = self._send_and_receive(
+            self._encode_command('GNSSBCKP', args=[str(d)])
+        )
+        self._decode_response(resp)
+
     def gnssi(self):
         """Read GNSS module info (unique_id, sw_version, hw_version).
         Requires GNSS to be powered on first (PWRON GNSS + ~2s wait)."""

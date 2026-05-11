@@ -42,6 +42,28 @@ class DECIMAL(UINT):
     pass
 
 
+class SAMPLINGPERIOD():
+    """SWS sampling period in seconds. Float, range [0.1, 86400.0].
+    Wire format compatible with both integer ("10") and float ("0.1") strings —
+    firmware uses %g, so integer values come back without trailing ".0"."""
+    MIN = 0.1
+    MAX = 86400.0
+
+    @staticmethod
+    def encode(value):
+        v = float(value)
+        if v < SAMPLINGPERIOD.MIN or v > SAMPLINGPERIOD.MAX:
+            raise ValueError(
+                f'sampling period {v} s out of range '
+                f'[{SAMPLINGPERIOD.MIN}, {SAMPLINGPERIOD.MAX}]'
+            )
+        return str(v)
+
+    @staticmethod
+    def decode(value):
+        return float(value)
+
+
 class TEXT():
     @staticmethod
     def encode(value):

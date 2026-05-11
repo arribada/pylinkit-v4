@@ -77,11 +77,14 @@ cmd_group.add_argument('--dumpd_type', type=str, choices=dumpd_options, required
                        help='Specified log file')
 cmd_group.add_argument('--pwron', type=str, choices=pwr_options, required=False,
                        help='Power on the device (GNSS, SENSORS, SATELLITE)')
-cmd_group.add_argument('--charge-coincell', action='store_true', required=False,
-                       help='Charge the coincell: keep BLE link alive (firmware idle '
-                            'timeout is 20 min) and PWRON GNSS so the GNSS rail '
-                            'sources the coincell trickle current. Shows elapsed time. '
-                            'Ctrl+C stops, then PWRON OFF is sent.')
+cmd_group.add_argument('--charge-coincell', type=int, nargs='?', const=600, default=None,
+                       metavar='DURATION_S',
+                       help='Charge the GNSS backup cell (V_BCKP) via GNSSBCKP. '
+                            'Optional duration in seconds, range [0, 86400], '
+                            'default 600. "--charge-coincell 0" stops a running '
+                            'charge. Firmware drives the rail on its own — no BLE '
+                            'keepalive needed (link may drop before duration ends, '
+                            'charge continues). Requires fw config_version >= 0x1D.')
 cmd_group.add_argument('--ano', type=argparse.FileType('rb'), required=False,
                        help='GNSS AssistNow Offline filename')
 cmd_group.add_argument('--ano-download', action='store_true', required=False,
@@ -576,43 +579,54 @@ def main():
     if args.pwron:
         dev.pwron(args.pwron)
 
-    if args.charge_coincell:
-        # Keep BLE alive (firmware idle timeout = 20 min) and hold GNSS rail ON
-        # to feed the supercap/coincell trickle. Loop is unbounded; user stops
-        # with Ctrl+C, after which we send PWRON OFF.
-        KEEPALIVE_PERIOD_S = 5 * 60        # < firmware 20-min idle timeout
-        UI_REFRESH_S = 1.0
+    if args.charge_coincell is not None:
+        duration = args.charge_coincell
+        if not 0 <= duration <= 86400:
+            parser.error('--charge-coincell duration must be in [0, 86400] seconds')
+
+        def _gnssbckp_hint(exc):
+            msg = str(exc)
+            if 'error 5' in msg:        # INCORRECT_DATA
+                return "  Hint: GPS device not detected — manual charge unavailable"
+            if 'error 7' in msg:        # VALUE_OUT_OF_RANGE
+                return "  Hint: duration must be 0..86400 s"
+            if 'error 6' in msg:        # PARAM_KEY_UNRECOGNISED (very old fw, defensive)
+                return "  Hint: firmware does not support GNSSBCKP (requires config_version >= 0x1D)"
+            return None
+
         try:
-            dev.pwron('gnss')
+            dev.gnssbckp(duration)
         except Exception as e:
-            print(f"PWRON GNSS FAILED: {e}")
+            print(f"GNSSBCKP FAILED: {e}")
+            hint = _gnssbckp_hint(e)
+            if hint:
+                print(hint)
         else:
-            print("Coincell charging: GNSS rail ON, BLE keepalive every 5 min.")
-            print("Press Ctrl+C to stop.")
-            t0 = time.time()
-            last_ka = t0
-            try:
-                while True:
-                    elapsed = int(time.time() - t0)
-                    h, rem = divmod(elapsed, 3600)
-                    m, s = divmod(rem, 60)
-                    sys.stdout.write(f"\r  elapsed: {h:02d}:{m:02d}:{s:02d}   ")
-                    sys.stdout.flush()
-                    if time.time() - last_ka >= KEEPALIVE_PERIOD_S:
-                        try:
-                            dev._dte.parmr(['POT06'])  # cheap read, resets idle timer
-                        except Exception as e:
-                            sys.stdout.write(f"\n  keepalive FAILED: {e}\n")
-                        last_ka = time.time()
-                    time.sleep(UI_REFRESH_S)
-            except KeyboardInterrupt:
-                sys.stdout.write("\n")
-            finally:
+            if duration == 0:
+                print("Backup-cell charge: stopped.")
+            else:
+                print(f"Backup-cell charge: started, firmware will run for {duration} s.")
+                print("Local countdown (BLE link may drop, charge keeps running):")
+                t0 = time.time()
                 try:
-                    dev.pwron('off')
-                    print("Coincell charging: stopped (PWRON OFF).")
-                except Exception as e:
-                    print(f"PWRON OFF FAILED: {e}")
+                    while True:
+                        elapsed = time.time() - t0
+                        remaining = duration - elapsed
+                        if remaining <= 0:
+                            sys.stdout.write("\r  remaining: 00:00:00   done.        \n")
+                            break
+                        h, rem = divmod(int(remaining), 3600)
+                        m, s = divmod(rem, 60)
+                        sys.stdout.write(f"\r  remaining: {h:02d}:{m:02d}:{s:02d}   ")
+                        sys.stdout.flush()
+                        time.sleep(1)
+                except KeyboardInterrupt:
+                    sys.stdout.write("\n")
+                    try:
+                        dev.gnssbckp(0)
+                        print("Backup-cell charge: stopped.")
+                    except Exception as e:
+                        print(f"GNSSBCKP stop FAILED: {e}")
 
     if args.scalw:
         if args.command is None:

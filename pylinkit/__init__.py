@@ -130,6 +130,11 @@ class Tracker:
     def pwron(self, component):
         self._dte.pwron(component)
 
+    def gnssbckp(self, duration_s):
+        """Trigger a GNSS backup-cell (V_BCKP) charge for ``duration_s`` seconds
+        (0 stops a running charge). Firmware-driven, no GPS acquisition cost."""
+        self._dte.gnssbckp(duration_s)
+
     def gnssi(self):
         """Read GNSS module info. Requires GNSS powered on (pwron('gnss') + 2s wait).
         Returns dict with unique_id, sw_version, hw_version."""
