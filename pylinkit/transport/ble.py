@@ -57,6 +57,11 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
         self._raw_callback = None
         self._log_mode = False
         self._raw_mode = False
+        # bleak's start_notify on Windows (WinRT backend) registers an
+        # *additional* handler on each call, causing duplicate delivery.
+        # Track whether NUS TX is already subscribed so we register the
+        # routing handler at most once per connection.
+        self._nus_subscribed = False
 
         atexit.register(self._cleanup)
 
@@ -85,7 +90,7 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
     def subscribe_data(self, callback):
         """Subscribe to NUS TX notifications for DTE responses."""
         self._data_callback = callback
-        self._subscribe(NUS_TX_CHAR_UUID, self._nus_handler)
+        self._ensure_nus_subscribed()
 
     # --- OTATransport interface ---
 
@@ -112,7 +117,7 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
         """Subscribe to NUS TX notifications for log/trace output."""
         self._log_callback = callback
         self._log_mode = True
-        self._subscribe(NUS_TX_CHAR_UUID, self._nus_handler)
+        self._ensure_nus_subscribed()
 
     @property
     def is_read_only(self):
@@ -135,7 +140,17 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
         are forwarded to the raw callback; data/log callbacks are bypassed."""
         self._raw_mode = bool(enabled)
         if enabled:
-            self._subscribe(NUS_TX_CHAR_UUID, self._nus_handler)
+            self._ensure_nus_subscribed()
+
+    def _ensure_nus_subscribed(self):
+        """Attach the NUS TX routing handler at most once per connection.
+        bleak's WinRT backend installs an additional handler on every
+        start_notify() call (no replace semantics), so calling subscribe_*
+        from multiple entry points used to deliver each notification N times."""
+        if self._nus_subscribed:
+            return
+        self._subscribe(NUS_TX_CHAR_UUID, self._nus_handler)
+        self._nus_subscribed = True
 
     # --- Internal NUS handler ---
 
@@ -210,6 +225,7 @@ class BLETransport(DataTransport, OTATransport, LogTransport):
             except Exception:
                 pass
             self._connection_client = None
+            self._nus_subscribed = False
 
     def _run_bleak_loop(self):
         self._bleak_loop = asyncio.new_event_loop()

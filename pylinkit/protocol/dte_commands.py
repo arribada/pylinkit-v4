@@ -118,16 +118,106 @@ class DTECommands:
         resp = self._send_and_receive(self._encode_command('STATR', params=params))
         return self._decode_key_values(self._decode_response(resp))
 
-    def parmw(self, param_values={}):
-        """Write parameters. Returns dict {param_name: True/False} indicating per-param success.
-        Raises Exception on global format errors. Partial rejects are handled gracefully."""
-        resp = self._send_and_receive(self._encode_command('PARMW', param_values=param_values))
+    # PARMW chunking — see firmware heap fragmentation issue with > ~30 params
+    # in a single PARMW: newlib sscanf + per-param substr() exhausts the 64 KB
+    # FreeRTOS heap. We slice into chunks of PARMW_DEFAULT_CHUNK_SIZE and send
+    # them sequentially. Within a chunk, params are sorted by short DTE key so
+    # family-related params (e.g. LRP01..LRP07) stay together.
+    PARMW_DEFAULT_CHUNK_SIZE = 20
+    PARMW_DEFAULT_CHUNK_TIMEOUT_S = 5.0
+    PARMW_DEFAULT_RETRIES = 3
+
+    def parmw_plan(self, param_values, chunk_size=None):
+        """Return the list of chunks that ``parmw`` would send, without sending.
+
+        Each chunk is a dict ``{param_name: value}`` preserving the ordering used
+        on the wire (sorted by short DTE key)."""
+        cs = chunk_size if chunk_size is not None else self.PARMW_DEFAULT_CHUNK_SIZE
+        if cs < 1:
+            raise ValueError(f'chunk_size must be >= 1, got {cs}')
+        # Sort by short DTE key so families (LRP*, GNP*, ARP*…) stay contiguous.
+        ordered = sorted(
+            param_values.items(),
+            key=lambda kv: DTEParamMap.param_to_key(kv[0]),
+        )
+        return [
+            dict(ordered[i:i + cs])
+            for i in range(0, len(ordered), cs)
+        ]
+
+    def parmw(self, param_values={}, chunk_size=None, chunk_timeout=None,
+              max_retries=None, progress=None):
+        """Write parameters in chunks to avoid firmware heap pressure.
+
+        Returns ``{param_name: True (written) | False (rejected)}`` for every
+        param in the input (same return type as the pre-chunking API).
+
+        Args:
+            param_values:    dict of {long_param_name: value}.
+            chunk_size:      max params per PARMW frame, default 20.
+            chunk_timeout:   per-chunk response timeout in seconds, default 5.
+            max_retries:     retry count on TimeoutError per chunk, default 3.
+            progress:        optional callable(chunk_idx, total_chunks, chunk_size).
+                             Called BEFORE each chunk is sent. ``chunk_idx``
+                             is 1-based.
+
+        Notes:
+            - Partial rejects ($N;PARMW#...;keys) are recorded and the next
+              chunk is sent (the firmware already accepted the non-rejected
+              params in the same chunk).
+            - Firmware-emitted errors ($N;PARMW#...;<errno>) abort the run for
+              the current chunk; remaining chunks are NOT sent and all their
+              params are marked False.
+            - Order: input is sorted by short DTE key on the wire (atomic
+              writes — firmware does not care about ordering).
+        """
+        if not param_values:
+            return {}
+
+        chunks = self.parmw_plan(param_values, chunk_size=chunk_size)
+        timeout = chunk_timeout if chunk_timeout is not None else self.PARMW_DEFAULT_CHUNK_TIMEOUT_S
+        retries = max_retries if max_retries is not None else self.PARMW_DEFAULT_RETRIES
+
+        result = {}
+        aborted = False
+        for idx, chunk in enumerate(chunks, start=1):
+            if progress is not None:
+                progress(idx, len(chunks), len(chunk))
+            if aborted:
+                result.update({name: False for name in chunk})
+                continue
+            try:
+                chunk_result = self._parmw_send_one(chunk, timeout, retries)
+            except Exception:
+                # global firmware error or unrecoverable timeout — abort the run
+                aborted = True
+                result.update({name: False for name in chunk})
+                continue
+            result.update(chunk_result)
+        return result
+
+    def _parmw_send_one(self, chunk, timeout, max_retries):
+        """Send a single PARMW chunk with timeout retry. Returns the per-param
+        success dict for this chunk. Raises on non-retryable errors."""
+        last_timeout = None
+        for attempt in range(max(1, max_retries)):
+            try:
+                resp = self._send_and_receive(
+                    self._encode_command('PARMW', param_values=chunk),
+                    timeout=timeout,
+                )
+                break
+            except TimeoutError as exc:
+                last_timeout = exc
+                continue
+        else:
+            raise last_timeout
         try:
             self._decode_response(resp)
-            return {name: True for name in param_values}
+            return {name: True for name in chunk}
         except ParmwPartialError as e:
             result = {}
-            for name in param_values:
+            for name in chunk:
                 key = DTEParamMap.param_to_key(name)
                 result[name] = key not in e.rejected_keys
             return result

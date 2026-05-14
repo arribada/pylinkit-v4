@@ -49,9 +49,24 @@ class Tracker:
         b = self._dte.statr()
         self._map = {**a, **b}
 
-    def set(self, param_values):
-        """Write parameters. Returns dict {param_name: True/False} for per-param success."""
-        return self._dte.parmw(param_values=param_values)
+    def set(self, param_values, chunk_size=None, chunk_timeout=None,
+            max_retries=None, progress=None):
+        """Write parameters. Returns dict {param_name: True/False} for per-param success.
+
+        Large batches are chunked (default 20 params/chunk) to keep the firmware
+        DTE parser under the FreeRTOS heap watermark; see
+        ``DTECommands.parmw`` for the chunking semantics."""
+        return self._dte.parmw(
+            param_values=param_values,
+            chunk_size=chunk_size,
+            chunk_timeout=chunk_timeout,
+            max_retries=max_retries,
+            progress=progress,
+        )
+
+    def plan_set(self, param_values, chunk_size=None):
+        """Dry-run: return the list of chunks ``set()`` would send."""
+        return self._dte.parmw_plan(param_values, chunk_size=chunk_size)
 
     def get(self, attr=None, default=KeyError):
         if attr is None:

@@ -69,6 +69,12 @@ cmd_group.add_argument('--factw', action='store_true', required=False,
                        help='Factory reset (WARNING: erases all stored logs and configuration!)')
 cmd_group.add_argument('--parmw', type=argparse.FileType('r'), required=False,
                        help='Filename to read [PARAM] configuration from')
+cmd_group.add_argument('--parmw-chunk-size', type=int, default=None, metavar='N',
+                       help='PARMW chunk size (default 20, sweet-spot for firmware '
+                            'heap; use 10–15 over flaky BLE, do not exceed 30)')
+cmd_group.add_argument('--parmw-dry-run', action='store_true', required=False,
+                       help='Print the chunked PARMW plan and exit without writing '
+                            'anything to the device')
 cmd_group.add_argument('--paspw', type=argparse.FileType('r'), required=False,
                        help='Filename (JSON) to read pass predict configuration from')
 cmd_group.add_argument('--dumpd', type=argparse.FileType('wb'), required=False,
@@ -509,24 +515,36 @@ def main():
         cfg = OrderedRawConfigParser()
         cfg.optionxform = lambda option: option
         cfg.read_string(args.parmw.read())
-        params = cfg['PARAM']
+        params = dict(cfg['PARAM'])
         rconf_keys = [k for k in params if k in DTECommands.RCONF_PARAM_KEYS]
         if rconf_keys:
             print(f"WARNING: RCONF key(s) present ({', '.join(rconf_keys)}).")
             print(f"  KIM2 firmware validates RCONF at next boot. If VLDA4 is configured")
             print(f"  with rf_level != {DTECommands.VLDA4_REQUIRED_DBM} dBm, it will be disabled automatically.")
             print(f"  Run '--satvf 0' after reboot to verify the active modulation and power.")
-        try:
-            result = dev.set(params)
-            ok = [k for k, v in result.items() if v]
-            nok = [k for k, v in result.items() if not v]
-            if ok:
-                print(f"Parameters written OK: {', '.join(ok)}")
-            if nok:
-                print(f"Parameters REJECTED (unknown key or invalid value): {', '.join(nok)}")
-                print("  Note: some parameters may not exist depending on firmware build configuration")
-        except Exception as e:
-            print(f"PARMW FAILED: {e}")
+
+        if args.parmw_dry_run:
+            chunks = dev.plan_set(params, chunk_size=args.parmw_chunk_size)
+            print(f"PARMW dry-run: {len(params)} params -> {len(chunks)} chunks "
+                  f"(chunk_size={args.parmw_chunk_size or DTECommands.PARMW_DEFAULT_CHUNK_SIZE})")
+            for i, chunk in enumerate(chunks, start=1):
+                keys = ', '.join(chunk.keys())
+                print(f"  chunk {i}/{len(chunks)} ({len(chunk)} params): {keys}")
+        else:
+            def _on_chunk(idx, total, size):
+                print(f"  Upload chunk {idx}/{total} ({size} params)")
+            try:
+                result = dev.set(params, chunk_size=args.parmw_chunk_size, progress=_on_chunk)
+                ok = [k for k, v in result.items() if v]
+                nok = [k for k, v in result.items() if not v]
+                if ok:
+                    print(f"Parameters written OK ({len(ok)}): {', '.join(ok)}")
+                if nok:
+                    print(f"Parameters REJECTED ({len(nok)}): {', '.join(nok)}")
+                    print("  Note: rejects can be unknown keys, invalid values, "
+                          "or chunks aborted after an earlier firmware error.")
+            except Exception as e:
+                print(f"PARMW FAILED: {e}")
 
     if args.paspw:
         dev.paspw(args.paspw.read())

@@ -117,6 +117,9 @@ SNAPSHOT = [
     ("BACKUP_CELL_CHARGE_INTERVAL",       "GNP47", "UINT"),
     ("BACKUP_CELL_CHARGE_DURATION",       "GNP48", "UINT"),
     ("BACKUP_CELL_CHARGE_ONLY_SUBMERGED", "GNP49", "BOOLEAN"),
+
+    # SWS pin sample delay (unit change: UINT/ms -> PINSAMPLEDELAYUS/µs)
+    ("UW_PIN_SAMPLE_DELAY_US",            "UNP08", "PINSAMPLEDELAYUS"),
 ]
 
 
@@ -141,9 +144,11 @@ def test_migrated_param_snapshot(long_name, short_key, codec_name):
 # ---------------------------------------------------------------------------
 
 REMOVED = [
-    "LAST_FULL_CHARGE_DATE",     # POT05, removed (firmware no longer exposes it)
-    "GNSS_NBLASTFIX_TOSEND",     # ARP16 renamed to ARGOS_DEPTH_PILE
-    "LB_GNSS_NBLASTFIX_TOSEND",  # LBP08 renamed to LB_ARGOS_DEPTH_PILE
+    "LAST_FULL_CHARGE_DATE",      # POT05, removed (firmware no longer exposes it)
+    "GNSS_NBLASTFIX_TOSEND",      # ARP16 renamed to ARGOS_DEPTH_PILE
+    "LB_GNSS_NBLASTFIX_TOSEND",   # LBP08 renamed to LB_ARGOS_DEPTH_PILE
+    "SWS_SAMPLE_DELAY_INITIAL",   # UNP08 renamed to UW_PIN_SAMPLE_DELAY_US (ms->µs)
+    "UW_PIN_SAMPLE_DELAY",        # legacy firmware-side name pre-_US suffix
 ]
 
 

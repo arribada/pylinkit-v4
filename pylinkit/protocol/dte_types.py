@@ -42,6 +42,29 @@ class DECIMAL(UINT):
     pass
 
 
+class PINSAMPLEDELAYUS():
+    """SWS underwater pin sample delay in microseconds (UNP08).
+    Firmware accepts [50, 30000] µs after the ms->µs migration; default 1000.
+    The 50 µs floor matches the firmware ADC settling spec, the 30000 µs cap
+    keeps the SWS sampling task from blocking the FreeRTOS scheduler."""
+    MIN = 50
+    MAX = 30000
+
+    @staticmethod
+    def encode(value):
+        v = int(value)
+        if v < PINSAMPLEDELAYUS.MIN or v > PINSAMPLEDELAYUS.MAX:
+            raise ValueError(
+                f'UW_PIN_SAMPLE_DELAY_US value {v} out of range '
+                f'[{PINSAMPLEDELAYUS.MIN}, {PINSAMPLEDELAYUS.MAX}] µs'
+            )
+        return str(v)
+
+    @staticmethod
+    def decode(value):
+        return int(value)
+
+
 class SAMPLINGPERIOD():
     """SWS sampling period in seconds. Float, range [0.1, 86400.0].
     Wire format compatible with both integer ("10") and float ("0.1") strings —
