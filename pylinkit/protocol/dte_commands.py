@@ -222,6 +222,31 @@ class DTECommands:
                 result[name] = key not in e.rejected_keys
             return result
 
+    def parml(self):
+        """List all DTE parameter keys supported by the device firmware.
+        Returns a list of 5-char keys (e.g. ['ARP01', 'GNP01', ...]).
+        Useful for dynamic discovery — keys not in pylinkit's DTEParamMap are
+        returned as-is."""
+        resp = self._send_and_receive(self._encode_command('PARML'))
+        payload = self._decode_response(resp)
+        if not payload:
+            return []
+        return [k.strip() for k in payload.split(',') if k.strip()]
+
+    def profr(self):
+        """Read the device profile name (free-form string)."""
+        resp = self._send_and_receive(self._encode_command('PROFR'))
+        return self._decode_response(resp)
+
+    def profw(self, profile_name):
+        """Write the device profile name (1-128 bytes)."""
+        if not 1 <= len(profile_name) <= 128:
+            raise ValueError('profile_name must be 1-128 bytes')
+        resp = self._send_and_receive(
+            self._encode_command('PROFW', args=[profile_name])
+        )
+        self._decode_response(resp)
+
     def battery(self):
         """Read battery status via PARMR (BATT_SOC, BATT_VOLTAGE, LB_TRESHOLD, LB_CRITICAL_THRESH)."""
         params = self.parmr(['POT03', 'POT06', 'LBP02', 'LBP12'])
@@ -305,16 +330,42 @@ class DTECommands:
         resp = self._send_and_receive(self._encode_command('FACTW'))
         self._decode_response(resp)
 
+    def secur(self, access_code):
+        """Unlock protected operations via secure access code.
+        access_code: int (will be sent as zero-padded 8-char hex) OR a hex
+        string. Accepts the master code 0x12345678 or the device's ARGOS_DECID."""
+        if isinstance(access_code, int):
+            hex_code = '{:08X}'.format(access_code)
+        else:
+            hex_code = str(access_code).upper().lstrip('0X').zfill(8)
+        resp = self._send_and_receive(
+            self._encode_command('SECUR', args=[hex_code])
+        )
+        self._decode_response(resp)
+
+    def dumpm(self, start_address, length):
+        """Raw memory dump (low-level diagnostic / SAV).
+        start_address: int — memory address to read from.
+        length: int — number of bytes to read (firmware cap: 0x500 = 1280 B).
+        Returns: raw bytes."""
+        if not 1 <= int(length) <= 0x500:
+            raise ValueError('length must be 1-1280 bytes (firmware cap 0x500)')
+        resp = self._send_and_receive(
+            self._encode_command('DUMPM', args=[
+                '{:X}'.format(int(start_address)),
+                '{:X}'.format(int(length)),
+            ]),
+            timeout=15.0
+        )
+        payload = self._decode_response(resp)
+        return BASE64.decode(payload)
+
     def rstvw(self, var_id):
         resp = self._send_and_receive(self._encode_command('RSTVW', args=[str(var_id)]))
         self._decode_response(resp)
 
     def rstbw(self):
         resp = self._send_and_receive(self._encode_command('RSTBW'))
-        self._decode_response(resp)
-
-    def deplw(self):
-        resp = self._send_and_receive(self._encode_command('DEPLW'))
         self._decode_response(resp)
 
     def scalw(self, sensor, step, value=0):
@@ -840,3 +891,27 @@ class DTECommands:
         payload = self._decode_response(resp)
         parts = payload.split(',')
         return self._parse_swsst(parts)
+
+    def swsstats(self, clear=False):
+        """Read SWS persistent diagnostic counters (R-MON-02).
+        clear=False: read counters. clear=True: clear then read.
+        All counters saturate at 65535.
+        Returns dict with 7 fields: stuck_recovery, coherence_recalib,
+        dive_timeout, force_surface, spike_reject, peak_incoherent,
+        saadc_init_retry."""
+        action = 1 if clear else 0
+        resp = self._send_and_receive(
+            self._encode_command('SWSSTATS', args=[str(action)]),
+            timeout=10.0
+        )
+        payload = self._decode_response(resp)
+        parts = payload.split(',')
+        return {
+            'stuck_recovery': int(parts[0]),
+            'coherence_recalib': int(parts[1]),
+            'dive_timeout': int(parts[2]),
+            'force_surface': int(parts[3]),
+            'spike_reject': int(parts[4]),
+            'peak_incoherent': int(parts[5]),
+            'saadc_init_retry': int(parts[6]),
+        }
