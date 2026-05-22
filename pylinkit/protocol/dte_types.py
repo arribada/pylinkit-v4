@@ -174,6 +174,18 @@ class ARGOSPOWER():
         return ARGOSPOWER.allowed[int(value)]
 
 
+class HAULEDGNSSSTRAT():
+    allowed = ['FRESH', 'REUSE_LAST', 'OFF']
+
+    @staticmethod
+    def encode(value):
+        return str(HAULEDGNSSSTRAT.allowed.index(value))
+
+    @staticmethod
+    def decode(value):
+        return HAULEDGNSSSTRAT.allowed[int(value)]
+
+
 class SENSORTXENABLEMODE():
     allowed = ['OFF', 'ONESHOT', 'MEAN', 'MEDIAN']
 
