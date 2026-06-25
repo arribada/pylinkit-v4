@@ -120,6 +120,32 @@ SNAPSHOT = [
 
     # SWS pin sample delay (unit change: UINT/ms -> PINSAMPLEDELAYUS/µs)
     ("UW_PIN_SAMPLE_DELAY_US",            "UNP08", "PINSAMPLEDELAYUS"),
+
+    # 2026-06 firmware sync — codecs locked for the params added this migration
+    ("ARGOS_TX_NO_FIX_POLICY",            "ARP36", "UINT"),
+    ("ARGOS_LAST_KNOWN_MAX_AGE_S",        "ARP37", "UINT"),
+    ("GNSS_FASTLOC_MODE",                 "GNP45", "UINT"),
+    ("GNSS_CLOUDLOCATE_FORMAT",           "GNP46", "UINT"),
+    ("GNSS_REUSE_FIX_MAX_AGE_S",          "GNP50", "UINT"),
+    ("GNSS_CLOUDLOCATE_ALWAYS",           "GNP51", "BOOLEAN"),
+    ("GNSS_DEEP_IDLE_AFTER_OFF_S",        "GNP52", "UINT"),
+    ("GNSS_CLOUDLOCATE_ONLY",             "GNP53", "BOOLEAN"),
+    ("GNSS_COLD_START_AFTER_NTRY",        "GNP54", "UINT"),
+    ("HAULED_DETECT_EN",                  "HMP00", "BOOLEAN"),
+    ("HAULED_IDLE_THRESHOLD_H",           "HMP01", "UINT"),
+    ("HAULED_RETURN_EVENTS",              "HMP02", "UINT"),
+    ("HAULED_ARGOS_MODE",                 "HMP10", "ARGOSMODE"),
+    ("HAULED_TR_NOM",                     "HMP11", "UINT"),
+    ("HAULED_GNSS_EN",                    "HMP12", "BOOLEAN"),
+    ("HAULED_GNSS_STRAT",                 "HMP13", "HAULEDGNSSSTRAT"),
+    ("RATE_LIMIT_EN",                     "RLP01", "BOOLEAN"),
+    ("RATE_LIMIT_WINDOW_S",               "RLP02", "UINT"),
+    ("RATE_LIMIT_MAX_TX",                 "RLP03", "UINT"),
+    ("SMD_DEGRADED_MODE",                 "SMP00", "UINT"),
+    ("ARGOS_CACHED_MODULATION",           "SMP01", "UINT"),
+    ("UW_MAX_SAMPLES",                    "UNP05", "UINT"),
+    ("UW_MIN_DRY_SAMPLES",                "UNP06", "UINT"),
+    ("UW_SAMPLE_GAP",                     "UNP07", "UINT"),
 ]
 
 

@@ -229,6 +229,18 @@ class DTEParamMap():
     [ "SMD_LPM_MODE", "ARP60", UINT ],
     [ "SMD_DEGRADED_MODE", "SMP00", UINT ],
     [ "ARGOS_CACHED_MODULATION", "SMP01", UINT ],
+    # --- 2026-06 firmware sync: params not already present on main ---
+    # NB: HAULED_*, RATE_LIMIT_*, SMD_*, UW_* and GNSS_FASTLOC_MODE/CLOUDLOCATE_FORMAT/
+    # REUSE_FIX_MAX_AGE_S were added independently on main, so they are intentionally
+    # NOT re-added here (re-adding would create duplicate keys).
+    # Argos no-fix TX policy (slots 223/224, formerly GNSS_BCKP_CHARGE_INT/DUR)
+    [ "ARGOS_TX_NO_FIX_POLICY", "ARP36", UINT ],
+    [ "ARGOS_LAST_KNOWN_MAX_AGE_S", "ARP37", UINT ],
+    # GNSS cloudlocate / deep-idle / cold-start
+    [ "GNSS_CLOUDLOCATE_ALWAYS", "GNP51", BOOLEAN ],
+    [ "GNSS_DEEP_IDLE_AFTER_OFF_S", "GNP52", UINT ],
+    [ "GNSS_CLOUDLOCATE_ONLY", "GNP53", BOOLEAN ],
+    [ "GNSS_COLD_START_AFTER_NTRY", "GNP54", UINT ],
     ]
 
     @staticmethod
