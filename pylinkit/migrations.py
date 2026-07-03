@@ -17,6 +17,22 @@ return it, so they compose:
 # only, pylinkit doesn't read this value off the device today.
 CONFIG_VERSION_UNP08_US = 0x1E
 
+# Firmware 2026-07 (0x1F) and 2026-07-03 (0x20) both RESET every parameter to its
+# default on upgrade, keeping ONLY ARGOS_DECID and ARGOS_HEXID (version recovery).
+#   0x1F: HAULED/RATE_LIMIT/SMD/GNSS-sync params; ARP36/ARP37 removed.
+#   0x20: BLIND Argos mode (ARP44/ARP45/ARP46).
+# There is no value migration to run for these — the device wipes itself — so the
+# only action is to re-push the full config after the upgrade.
+CONFIG_VERSION_FW_2026_07 = 0x1F
+CONFIG_VERSION_FW_2026_07_03 = 0x20
+
+# Shown by the CLI (and importable by the GUI) at connect/write time.
+FW_2026_07_UPGRADE_WARNING = (
+    "Firmware 2026-07+ (config version >= 0x1F) : la config a été réinitialisée aux "
+    "défauts à l'upgrade (sauf ARGOS_DECID / ARGOS_HEXID). Repousser la config "
+    "complète (full PARMW) avant déploiement."
+)
+
 
 def migrate_unp08_ms_to_us(params):
     """Firmware 0x1D -> 0x1E: UNP08 renamed UW_PIN_SAMPLE_DELAY (ms) ->

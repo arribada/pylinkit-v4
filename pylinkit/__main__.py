@@ -531,6 +531,9 @@ def main():
                 keys = ', '.join(chunk.keys())
                 print(f"  chunk {i}/{len(chunks)} ({len(chunk)} params): {keys}")
         else:
+            from .migrations import FW_2026_07_UPGRADE_WARNING
+            print(f"NOTE: {FW_2026_07_UPGRADE_WARNING}")
+
             def _on_chunk(idx, total, size):
                 print(f"  Upload chunk {idx}/{total} ({size} params)")
             try:

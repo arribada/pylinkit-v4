@@ -122,8 +122,7 @@ SNAPSHOT = [
     ("UW_PIN_SAMPLE_DELAY_US",            "UNP08", "PINSAMPLEDELAYUS"),
 
     # 2026-06 firmware sync — codecs locked for the params added this migration
-    ("ARGOS_TX_NO_FIX_POLICY",            "ARP36", "UINT"),
-    ("ARGOS_LAST_KNOWN_MAX_AGE_S",        "ARP37", "UINT"),
+    # (ARP36/ARP37 were REMOVED in fw 2026-07 — see REMOVED allow-list below)
     ("GNSS_FASTLOC_MODE",                 "GNP45", "UINT"),
     ("GNSS_CLOUDLOCATE_FORMAT",           "GNP46", "UINT"),
     ("GNSS_REUSE_FIX_MAX_AGE_S",          "GNP50", "UINT"),
@@ -146,6 +145,11 @@ SNAPSHOT = [
     ("UW_MAX_SAMPLES",                    "UNP05", "UINT"),
     ("UW_MIN_DRY_SAMPLES",                "UNP06", "UINT"),
     ("UW_SAMPLE_GAP",                     "UNP07", "UINT"),
+
+    # 2026-07-03 firmware — BLIND Argos mode (config version 0x20)
+    ("ARGOS_BLIND_EN",                    "ARP44", "BOOLEAN"),
+    ("ARGOS_BLIND_RETX_NB",               "ARP45", "UINT"),
+    ("ARGOS_BLIND_RETX_PERIOD_S",         "ARP46", "UINT"),
 ]
 
 
@@ -175,6 +179,8 @@ REMOVED = [
     "LB_GNSS_NBLASTFIX_TOSEND",   # LBP08 renamed to LB_ARGOS_DEPTH_PILE
     "SWS_SAMPLE_DELAY_INITIAL",   # UNP08 renamed to UW_PIN_SAMPLE_DELAY_US (ms->µs)
     "UW_PIN_SAMPLE_DELAY",        # legacy firmware-side name pre-_US suffix
+    "ARGOS_TX_NO_FIX_POLICY",     # ARP36 removed fw 2026-07 (slot 223 reserved)
+    "ARGOS_LAST_KNOWN_MAX_AGE_S", # ARP37 removed fw 2026-07 (slot 224 reserved)
 ]
 
 

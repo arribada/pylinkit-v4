@@ -73,6 +73,14 @@ class DTEParamMap():
     [ "SURFACING_BURST_STEP", "ARP41", UINT ],
     [ "SURFACING_BURST_MAX_INTERVAL", "ARP42", UINT ],
     [ "SURFACING_BURST_MAX_MSG", "ARP43", UINT ],
+    # BLIND Argos mode (fw 2026-07-03, config version 0x20): the satellite module
+    # handles the per-burst repetitions instead of the nRF. Excluded in
+    # SURFACING_BURST and DOPPLER. Firmware bounds/defaults:
+    #   ARP44 BOOLEAN (default 0), ARP45 UINT 1..127 (default 4),
+    #   ARP46 UINT 60..65535 s (default 60). Keep NB*PERIOD < 7200 s (see enums.py help).
+    [ "ARGOS_BLIND_EN", "ARP44", BOOLEAN ],
+    [ "ARGOS_BLIND_RETX_NB", "ARP45", UINT ],
+    [ "ARGOS_BLIND_RETX_PERIOD_S", "ARP46", UINT ],
     [ "RX_COUNTER", "ART10", UINT ],
     [ "RX_TIME", "ART11", UINT ],
     [ "GNSS_ASSISTNOW_EN", "GNP24", BOOLEAN ],
@@ -233,9 +241,10 @@ class DTEParamMap():
     # NB: HAULED_*, RATE_LIMIT_*, SMD_*, UW_* and GNSS_FASTLOC_MODE/CLOUDLOCATE_FORMAT/
     # REUSE_FIX_MAX_AGE_S were added independently on main, so they are intentionally
     # NOT re-added here (re-adding would create duplicate keys).
-    # Argos no-fix TX policy (slots 223/224, formerly GNSS_BCKP_CHARGE_INT/DUR)
-    [ "ARGOS_TX_NO_FIX_POLICY", "ARP36", UINT ],
-    [ "ARGOS_LAST_KNOWN_MAX_AGE_S", "ARP37", UINT ],
+    # NOTE (2026-07 firmware): ARP36 ARGOS_TX_NO_FIX_POLICY and ARP37
+    # ARGOS_LAST_KNOWN_MAX_AGE_S were REMOVED — slots 223/224 are now reserved and
+    # PARMW rejects them. The "no-fix TX policy" (NO_TX/LAST_KNOWN/EMPTY_POS) concept
+    # no longer exists. Do NOT re-add these keys.
     # GNSS cloudlocate / deep-idle / cold-start
     [ "GNSS_CLOUDLOCATE_ALWAYS", "GNP51", BOOLEAN ],
     [ "GNSS_DEEP_IDLE_AFTER_OFF_S", "GNP52", UINT ],

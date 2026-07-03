@@ -106,6 +106,42 @@ The file must have a ``[PARAM]`` section. Timestamp parameters
 (``LAST_KNOWN_RTC``, ``RTC_CURRENT_TIME``) are exported in
 ``DD/MM/YYYY HH:MM:SS`` UTC format.
 
+.. note::
+
+   **Firmware 2026-07+ resets the config on upgrade.** After flashing a
+   2026-07 (config ``0x1F``) or 2026-07-03 (config ``0x20``) firmware, the
+   device restores every parameter to its default except ``ARGOS_DECID`` and
+   ``ARGOS_HEXID``. Re-push the full config (full ``--parmw``) before
+   deployment.
+
+
+Argos transmission semantics
+----------------------------
+
+**First message gate (non-RSPB).** The device emits no satellite message for a
+session until GNSS obtains a first real fix (which also sets the clock) —
+time-sync included. RSPB is exempt: it transmits an empty position plus sensors
+even without a fix. For RSPB presets, prefer ``NTRY_PER_MESSAGE = 0`` — with
+``NTRY = 3`` and ``SHUTDOWN_NTIME_SAT = 5`` the early powerdown at the 5th TX
+never triggers and the session lingers.
+
+**NTRY_PER_MESSAGE** (``ARP19`` / ``LBP11`` / ``ZOP13``, ``UINT`` 0..86400):
+number of transmissions per satellite message. ``N>0`` sends each message
+exactly ``N`` times then it goes inert; ``0`` = unlimited (the depth pile is
+replayed until newer fixes evict older ones, bounded by ``ARGOS_DEPTH_PILE``;
+in ``SURFACING_BURST``, ``0`` means a single send per fix).
+
+**BLIND mode** (``ARGOS_BLIND_EN`` = ``ARP44``, config ``0x20``): delegates the
+repetitions to the satellite module (KMAC BLIND profile). The nRF sends once and
+the module re-emits ``ARGOS_BLIND_RETX_NB`` (``ARP45``, 1..127) copies spaced by
+``ARGOS_BLIND_RETX_PERIOD_S`` (``ARP46``, 60..65535 s). BLIND has no effect in
+``SURFACING_BURST`` or ``DOPPLER`` (excluded). In BLIND, ``NTRY_PER_MESSAGE`` is
+the number of blind *sequences* triggered by the nRF and ``TR_NOM`` the interval
+*between* sequences, while ``RETX_NB`` / ``RETX_PERIOD_S`` govern the copies
+*within* one sequence (e.g. ``NTRY=3`` × ``RETX_NB=4`` = 12 emissions). Keep
+``RETX_NB × RETX_PERIOD_S`` under 2 h (7200 s): beyond that the firmware clamps
+the TX window and may report a false TX error.
+
 
 Logs and monitoring
 -------------------

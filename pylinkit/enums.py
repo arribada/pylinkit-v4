@@ -103,6 +103,55 @@ def depth_pile_label(radio_mode: str) -> str:
     return "LoRa depth pile" if str(radio_mode).lower() == "lora" else "Argos depth pile"
 
 
+# --- NTRY_PER_MESSAGE family (ARP19, LBP11, ZOP13): UINT, range 0..86400 -------
+# Value 0 has a special meaning, so the UI shows a label instead of the raw 0.
+NTRY_PER_MESSAGE_MIN = 0
+NTRY_PER_MESSAGE_MAX = 86400
+
+
+def ntry_per_message_label(value) -> str:
+    """UI label for the *NTRY_PER_MESSAGE spinbox. 0 = unlimited replay.
+    Keep 0 selectable in the widget; only the displayed text changes."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return "Auto / Illimité" if n == 0 else str(n)
+
+
+NTRY_PER_MESSAGE_HELP = (
+    "Nombre de transmissions par message satellite.\n"
+    "• N>0 : chaque position/message est transmis exactement N fois puis devient inerte.\n"
+    "• 0 = Illimité : en LEGACY/DUTY_CYCLE/PASS_PREDICTION la depth pile est rejouée en "
+    "boucle jusqu'à ce que de nouveaux fix évincent les anciens (borné par ARGOS_DEPTH_PILE).\n"
+    "  En SURFACING_BURST, 0 = un seul envoi par fix.\n"
+    "En mode BLIND : NTRY = nombre de séquences blind déclenchées par le nRF ; "
+    "TR_NOM = intervalle entre deux séquences blind."
+)
+
+# --- BLIND Argos mode (ARP44/45/46, firmware 2026-07-03, config version 0x20) --
+# The satellite module (KMAC BLIND profile) handles the per-burst repetitions:
+# the nRF sends once, the module re-emits retx_nb copies spaced by retx_period_s.
+ARGOS_BLIND_EN_HELP = (
+    "Active le mode BLIND : le module satellite gère lui-même les répétitions "
+    "(au lieu du nRF). Sans effet en SURFACING_BURST et DOPPLER (exclus). "
+    "Défaut désactivé = comportement normal inchangé."
+)
+ARGOS_BLIND_RETX_NB_HELP = (
+    "Nombre de répétitions d'un message par burst blind (le module émet N copies). "
+    "Distinct de NTRY_PER_MESSAGE (=nombre de séquences blind déclenchées par le nRF). "
+    "Ex : NTRY=3 et RETX_NB=4 → 3 séquences × 4 copies = 12 émissions."
+)
+ARGOS_BLIND_RETX_PERIOD_S_HELP = (
+    "Intervalle (secondes) entre deux répétitions AU SEIN d'un burst (géré par le module). "
+    "À NE PAS confondre avec TR_NOM = intervalle entre deux séquences blind (géré par le nRF)."
+)
+# Documented soft constraint (not a hard block): keep retx_nb * retx_period_s
+# below 2 h. Beyond 7200 s the firmware clamps the TX window and may raise a
+# false TX error.
+ARGOS_BLIND_MAX_WINDOW_S = 7200
+
+
 # Symmetric swap between KineisModulation and SmdArgosModulation (byte 9 of radioconf).
 # LDK and LDA2 are swapped: Kineis LDK=0 <-> SMD 1, Kineis LDA2=1 <-> SMD 0, VLDA4=2 unchanged.
 KINEIS_TO_SMD_MOD = {0: 1, 1: 0, 2: 2}
