@@ -321,7 +321,10 @@ class PRESSUREFULLSCALE():
 
 
 class ZONETYPE():
-    allowed = ['NONE', 'CIRCLE']
+    # Firmware BaseZoneType only defines CIRCLE=1; decode_zone_type() rejects
+    # anything else (permitted_values={1}). Index 0 is a reserved placeholder
+    # so 'CIRCLE' still encodes to wire '1' and 'NONE' is never offered.
+    allowed = [-1, 'CIRCLE']
 
     @staticmethod
     def encode(value):
@@ -456,23 +459,53 @@ class Packer():
 
 
 class PASPW():
+    """Encode a Kineis allcast AOP capture for the PASPW DTE command.
+
+    Since the firmware PREPASS v4.0 integration (2026-08) the tracker accepts
+    ONLY the Kineis allcast format (allcast addresses 0x136 UTC / 0x26C AOP
+    mono-sat / 0x35A AOP multi-sat / 0x443 / 0x575 / 0x62F constellation
+    status), as returned by the CLS `retrieve-kineis-aop` endpoint
+    (api.groupcls.com/telemetry/api/v1). The DTE frame is unchanged
+    ($PASPW#<len>;<base64>); only the payload content changed. The old CLS
+    A-DCS allcast JSON (`allcastFormats`, addresses 0x0137/0x0BE5/0x0BE7/
+    0x0D45/0x0D47) is now refused by the device with $N;PASPW#001;5 and the
+    stored orbital table is left untouched.
+
+    Accepts either:
+      - a hex string of the raw Kineis allcast frames (e.g. the contents of
+        a kineis_aop_*.hex capture), with optional whitespace / newlines and
+        an optional leading '0x', or
+      - raw bytes / bytearray of the same.
+    Returns the base64 string the PASPW command expects.
+    """
 
     @staticmethod
     def encode(value):
-        d = json.loads(value)
-        allcast = d['allcastFormats']
-        hex_bytes = ''
-        for entry in allcast:
-            for x in entry['adaptedOrbitParametersBurst']:
-                hex_bytes += entry['adaptedOrbitParametersBurst'][x]
-            for x in entry['constellationStatusBurst']:
-                csb = entry['constellationStatusBurst'][x]
-                if len(csb) & 1:
-                    logger.warning('Stuffing CSB record %s with 0000 missing bits', x)
-                    csb += '0'
-                hex_bytes += csb
-        logger.debug('Allcast packet: %s', hex_bytes)
-        return base64.b64encode(binascii.unhexlify(hex_bytes)).decode('ascii')
+        # Guard: the obsolete A-DCS allcastFormats JSON is rejected by current
+        # firmware. Fail early client-side with an actionable hint instead of
+        # letting the device return an opaque error 5.
+        if isinstance(value, str) and 'allcastFormats' in value:
+            raise ValueError(
+                'PASPW: the old CLS A-DCS allcast JSON (allcastFormats) is no '
+                'longer accepted by the firmware (PREPASS v4.0). Provide the '
+                'Kineis allcast capture from the retrieve-kineis-aop endpoint '
+                '(raw binary, or its hex string e.g. kineis_aop_YYYYMMDD.hex).'
+            )
+        if isinstance(value, (bytes, bytearray)):
+            raw = bytes(value)
+        else:
+            hex_str = ''.join(str(value).split())
+            if hex_str[:2].lower() == '0x':
+                hex_str = hex_str[2:]
+            try:
+                raw = binascii.unhexlify(hex_str)
+            except (binascii.Error, ValueError) as e:
+                raise ValueError(
+                    'PASPW: input is neither raw bytes nor a valid hex string '
+                    f'of Kineis allcast frames: {e}'
+                )
+        logger.debug('Kineis allcast packet: %d bytes', len(raw))
+        return base64.b64encode(raw).decode('ascii')
 
 
 PRESSURE_SEA_LEVEL_DEFAULT = 1013.25

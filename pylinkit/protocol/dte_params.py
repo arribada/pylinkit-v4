@@ -43,7 +43,7 @@ class DTEParamMap():
     [ "UW_MIN_DRY_SAMPLES", "UNP06", UINT ],
     [ "UW_SAMPLE_GAP", "UNP07", UINT ],
     [ "LB_EN", "LBP01", BOOLEAN ],
-    [ "LB_TRESHOLD", "LBP02", UINT ],
+    [ "LB_THRESHOLD", "LBP02", UINT ],
     [ "LB_ARGOS_TX_REPETITION", "ARP06", UINT  ],
     [ "LB_ARGOS_MODE", "LBP04", ARGOSMODE ],
     [ "LB_ARGOS_DUTY_CYCLE", "LBP05", ARGOSDUTYCYLE ],
@@ -103,7 +103,7 @@ class DTEParamMap():
     [ "ZONE_CENTER_LATITUDE", "ZOP19", FLOAT ],
     [ "ZONE_RADIUS", "ZOP20", UINT ],
     [ "CERT_TX_ENABLE", "CTP01", BOOLEAN ],
-    [ "CERT_TX_PAYLOAD", "CTP02", UPPERCASETEXT ],
+    [ "CERT_TX_PAYLOAD", "CTP02", TEXT ],
     [ "CERT_TX_MODULATION", "CTP03", ARGOSMODULATION ],
     [ "CERT_TX_REPETITION", "CTP04", UINT ],
     [ "DEVICE_DECID", "IDT10", UINT ],
@@ -139,7 +139,8 @@ class DTEParamMap():
     [ "CAM_PERIOD_ON", "CAP04", UINT ],
     [ "CAM_PERIOD_OFF", "CAP05", UINT ],
     [ "LB_CAM_EN", "LBP13", BOOLEAN ],
-    [ "EXT_LED_MODE", "LDP02", LEDMODE ],
+    # LDP02 EXT_LED_MODE removed: firmware slot 117 is _RESERVED_117 (EXT_LED_PIN
+    # is not wired on LinkIt V4 / RSPB); PARMR/PARMW on LDP02 are rejected.
     [ "LED_HRS24_RTC_CUTOFF", "LDP03", DATESTRING ],
     [ "AXL_SENSOR_ENABLE", "AXP01", BOOLEAN ],
     [ "AXL_SENSOR_PERIODIC", "AXP02", UINT ],
@@ -149,7 +150,11 @@ class DTEParamMap():
     [ "AXL_SENSOR_ENABLE_TX_MAX_SAMPLES", "AXP06", UINT ],
     [ "AXL_SENSOR_ENABLE_TX_SAMPLE_PERIOD", "AXP07", UINT ],
     [ "AXL_SENSOR_MEASUREMENT_RANGE", "AXP08", ACCRANGE ],
-    [ "AXL_SENSOR_POWER_MODE", "AXP09", AXLPOWERMODE ],
+    # AXP09 is a raw UINT 0..2 on the wire; the previous AXLPOWERMODE label
+    # ordering (['NORMAL','LOWPOWER','AUTOLOWPOWER']) contradicted the firmware
+    # meaning (0=Low Power, 1=Normal, 2=Sleep) and swapped 0/1. Use plain UINT
+    # until the exact BMA400 mode mapping is confirmed in the accel driver.
+    [ "AXL_SENSOR_POWER_MODE", "AXP09", UINT ],
     [ "AXL_FIFO_ENABLE", "AXP10", BOOLEAN ],
     [ "AXL_FIFO_SAMPLE_COUNT", "AXP11", UINT ],
     [ "THERMISTOR_SENSOR_ENABLE", "THP01", BOOLEAN ],
@@ -191,9 +196,9 @@ class DTEParamMap():
     [ "GNSS_ANO_STALE_DAYS", "GNP44", UINT ],
     [ "GNSS_FASTLOC_MODE", "GNP45", UINT ],
     [ "GNSS_CLOUDLOCATE_FORMAT", "GNP46", UINT ],
-    [ "BACKUP_CELL_CHARGE_INTERVAL", "GNP47", UINT ],
-    [ "BACKUP_CELL_CHARGE_DURATION", "GNP48", UINT ],
-    [ "BACKUP_CELL_CHARGE_ONLY_SUBMERGED", "GNP49", BOOLEAN ],
+    # GNP47/GNP48/GNP49 (BACKUP_CELL_CHARGE_*) removed: firmware reserved slots
+    # 223/224/225 and rejects these keys. Superseded by GNSS_DEEP_IDLE_AFTER_OFF_S
+    # (GNP52) below. The GNSSBCKP *command* still exists and is kept in dte_commands.
     [ "GNSS_REUSE_FIX_MAX_AGE_S", "GNP50", UINT ],
     [ "RTC_CURRENT_TIME", "SYT01", UINT ],
     [ "LORA_DEVEUI", "LRP01", UPPERCASETEXT ],
@@ -250,6 +255,46 @@ class DTEParamMap():
     [ "GNSS_DEEP_IDLE_AFTER_OFF_S", "GNP52", UINT ],
     [ "GNSS_CLOUDLOCATE_ONLY", "GNP53", BOOLEAN ],
     [ "GNSS_COLD_START_AFTER_NTRY", "GNP54", UINT ],
+    # Prepass / AOP (firmware 2026-08). Le gating prepass est devenu orthogonal
+    # a ARGOS_MODE: PPP07 l'active sur n'importe quel mode, et ARGOS_MODE=
+    # PASS_PREDICTION reste equivalent par compatibilite. Quand les AOP sont
+    # inexploitables (absents, RTC non reglee, bulletin non date, ou plus vieux
+    # que PPP08) la balise retombe en emission periodique au lieu de rester
+    # muette. PPT01-PPT04 sont en LECTURE SEULE, lus via STATR.
+    [ "SAT_PREPASS_EN", "PPP07", BOOLEAN ],
+    [ "SAT_AOP_MAX_AGE_DAYS", "PPP08", UINT ],
+    [ "SAT_PREPASS_MAX_WAIT_S", "PPP09", UINT ],
+    # PREPASS v4.0 filters (firmware 2026-08). Culmination = the highest
+    # elevation a pass reaches at its middle. PPP10 gates the TX path, PPP11 the
+    # AOP-downlink RX window (default 20), PPP12 widens the visibility circle by
+    # the beacon position uncertainty. All UINT: PPP10/PPP11 in degrees (0-90),
+    # PPP12 in km (0-100).
+    [ "PP_MIN_CULMINATION", "PPP10", UINT ],
+    [ "PP_RX_MIN_CULMINATION", "PPP11", UINT ],
+    [ "PP_POSITION_MARGIN_KM", "PPP12", UINT ],
+    [ "SAT_AOP_VALID", "PPT01", BOOLEAN ],
+    [ "SAT_AOP_AGE_S", "PPT02", UINT ],
+    [ "SAT_NEXT_PASS_TS", "PPT03", UINT ],
+    [ "SAT_LAST_PASS_TS", "PPT04", UINT ],
+    # Mode "a quai" / en route (firmware 2026-08, traceur bateau Cyprus).
+    # Le classifieur MooredModeService bascule en MOORED apres MRP02 points GNSS
+    # consecutifs a moins de MRP01 metres d'une ancre de reference FIXE, et en
+    # ressort des qu'un point sort du rayon, que gSpeed depasse 1 m/s, ou apres
+    # MRP03 reveils accelerometre (anti-rebond MRP04). En MOORED, MRP05 remplace
+    # GNSS_DELTATIME_ACQ (ARP11) et MRP06 remplace ARGOS_TX_REPETITION (ARP05).
+    # Priorite: LOW_BATTERY > HAULED > MOORED > OUT_OF_ZONE > NORMAL.
+    # Desactive par defaut (MRP00=0) : aucun impact sur les autres deploiements.
+    # MRT01 est en LECTURE SEULE, lu via STATR.
+    [ "MOORED_DETECT_EN", "MRP00", BOOLEAN ],
+    [ "MOORED_RADIUS_M", "MRP01", UINT ],
+    [ "MOORED_ENTER_FIXES", "MRP02", UINT ],
+    [ "MOORED_EXIT_EVENTS", "MRP03", UINT ],
+    [ "MOORED_AXL_HOLDOFF_S", "MRP04", UINT ],
+    [ "MOORED_DLOC", "MRP05", AQPERIOD ],
+    [ "MOORED_TR_NOM", "MRP06", UINT ],
+    [ "MOORED_GNSS_EN", "MRP07", BOOLEAN ],
+    [ "MOORED_TX_LAST_POS", "MRP08", BOOLEAN ],
+    [ "MOORED_STATE", "MRT01", UINT ],
     ]
 
     @staticmethod

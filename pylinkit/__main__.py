@@ -76,7 +76,9 @@ cmd_group.add_argument('--parmw-dry-run', action='store_true', required=False,
                        help='Print the chunked PARMW plan and exit without writing '
                             'anything to the device')
 cmd_group.add_argument('--paspw', type=argparse.FileType('r'), required=False,
-                       help='Filename (JSON) to read pass predict configuration from')
+                       help='Filename holding the Kineis allcast AOP capture '
+                            '(hex from the retrieve-kineis-aop endpoint, e.g. '
+                            'kineis_aop_YYYYMMDD.hex) to upload via PASPW')
 cmd_group.add_argument('--dumpd', type=argparse.FileType('wb'), required=False,
                        help='Dump the specified log file')
 cmd_group.add_argument('--dumpd_type', type=str, choices=dumpd_options, required=False,
@@ -550,7 +552,11 @@ def main():
                 print(f"PARMW FAILED: {e}")
 
     if args.paspw:
-        dev.paspw(args.paspw.read())
+        try:
+            dev.paspw(args.paspw.read())
+            print("PASPW OK")
+        except Exception as e:
+            print(f"PASPW FAILED: {e}")
 
     if args.dumpd and args.dumpd_type:
         try:

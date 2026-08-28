@@ -248,12 +248,12 @@ class DTECommands:
         self._decode_response(resp)
 
     def battery(self):
-        """Read battery status via PARMR (BATT_SOC, BATT_VOLTAGE, LB_TRESHOLD, LB_CRITICAL_THRESH)."""
+        """Read battery status via PARMR (BATT_SOC, BATT_VOLTAGE, LB_THRESHOLD, LB_CRITICAL_THRESH)."""
         params = self.parmr(['POT03', 'POT06', 'LBP02', 'LBP12'])
         voltage_v = params.get('BATT_VOLTAGE', 0)
         voltage_mv = int(voltage_v * 1000) if isinstance(voltage_v, float) else int(voltage_v)
         soc = int(params.get('BATT_SOC', 0))
-        lb_thresh = int(params.get('LB_TRESHOLD', 0))
+        lb_thresh = int(params.get('LB_THRESHOLD', 0))
         critical_pct = int(params.get('LB_CRITICAL_THRESH', 0))
         return {
             'voltage_mv': voltage_mv,

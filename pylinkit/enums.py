@@ -161,6 +161,7 @@ SMD_TO_KINEIS_MOD = {0: 1, 1: 0, 2: 2}
 class ResetVariable(IntEnum):
     """RSTVW variable types."""
     TX_COUNTER = 1
+    BOOT_COUNTER = 2  # EXTERNAL_WAKEUP builds only (RSPB); firmware permits {1,2,3,4}
     RX_COUNTER = 3
     RX_TIME = 4
 

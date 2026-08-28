@@ -113,10 +113,10 @@ SNAPSHOT = [
     # LED HRS_24 cutoff (added)
     ("LED_HRS24_RTC_CUTOFF",              "LDP03", "DATESTRING"),
 
-    # GNSS backup-cell charge (added)
-    ("BACKUP_CELL_CHARGE_INTERVAL",       "GNP47", "UINT"),
-    ("BACKUP_CELL_CHARGE_DURATION",       "GNP48", "UINT"),
-    ("BACKUP_CELL_CHARGE_ONLY_SUBMERGED", "GNP49", "BOOLEAN"),
+    # PREPASS v4.0 culmination / position-margin filters (added fw 2026-08)
+    ("PP_MIN_CULMINATION",                "PPP10", "UINT"),
+    ("PP_RX_MIN_CULMINATION",             "PPP11", "UINT"),
+    ("PP_POSITION_MARGIN_KM",             "PPP12", "UINT"),
 
     # SWS pin sample delay (unit change: UINT/ms -> PINSAMPLEDELAYUS/µs)
     ("UW_PIN_SAMPLE_DELAY_US",            "UNP08", "PINSAMPLEDELAYUS"),
@@ -181,6 +181,11 @@ REMOVED = [
     "UW_PIN_SAMPLE_DELAY",        # legacy firmware-side name pre-_US suffix
     "ARGOS_TX_NO_FIX_POLICY",     # ARP36 removed fw 2026-07 (slot 223 reserved)
     "ARGOS_LAST_KNOWN_MAX_AGE_S", # ARP37 removed fw 2026-07 (slot 224 reserved)
+    "BACKUP_CELL_CHARGE_INTERVAL",       # GNP47 removed (slot 223 reserved, -> GNP52)
+    "BACKUP_CELL_CHARGE_DURATION",       # GNP48 removed (slot 224 reserved, -> GNP52)
+    "BACKUP_CELL_CHARGE_ONLY_SUBMERGED", # GNP49 removed (slot 225 reserved, -> GNP52)
+    "EXT_LED_MODE",               # LDP02 removed (slot 117 reserved, EXT_LED_PIN not wired)
+    "LB_TRESHOLD",                # typo renamed to LB_THRESHOLD
 ]
 
 

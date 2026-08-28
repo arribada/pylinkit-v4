@@ -1,37 +1,38 @@
-"""Unit tests for the GNSSBCKP command and GNP47/GNP48/GNP49 params.
+"""Unit tests for the GNSSBCKP command.
 
 Covers:
-  - New params present in the DTE map (with correct types & short keys)
   - GNSSBCKP wire-format matches firmware spec ($GNSSBCKP#<len_hex>;<duration>\r)
   - Client-side range validation [0, 86400]
   - Round-trip dispatch via DTECommands using a fake transport that captures
     the command bytes and feeds back a synthesized $O / $N response.
+
+Note: the GNSSBCKP *command* is still a live entry in the firmware
+command_map, but the backup-cell *params* GNP47/GNP48/GNP49
+(BACKUP_CELL_CHARGE_*) were removed (firmware reserved slots 223/224/225,
+superseded by GNSS_DEEP_IDLE_AFTER_OFF_S/GNP52) and must no longer appear in
+the DTE param map.
 """
 import pytest
 
 from pylinkit import Tracker
 from pylinkit.protocol.dte_params import DTEParamMap
 from pylinkit.protocol.dte_commands import DTECommands
-from pylinkit.protocol.dte_types import UINT, BOOLEAN
 
 
 # --- param map --------------------------------------------------------------
 
-@pytest.mark.parametrize("long_key,short_key,codec", [
-    ("BACKUP_CELL_CHARGE_INTERVAL",        "GNP47", UINT),
-    ("BACKUP_CELL_CHARGE_DURATION",        "GNP48", UINT),
-    ("BACKUP_CELL_CHARGE_ONLY_SUBMERGED",  "GNP49", BOOLEAN),
+@pytest.mark.parametrize("long_key,short_key", [
+    ("BACKUP_CELL_CHARGE_INTERVAL",        "GNP47"),
+    ("BACKUP_CELL_CHARGE_DURATION",        "GNP48"),
+    ("BACKUP_CELL_CHARGE_ONLY_SUBMERGED",  "GNP49"),
 ])
-def test_backup_cell_params_present(long_key, short_key, codec):
-    assert DTEParamMap.param_to_key(long_key) == short_key
-    assert DTEParamMap.key_to_param(short_key) == long_key
-    # encode/decode through the map matches the declared codec
-    if codec is BOOLEAN:
-        for v in (0, 1, True, False):
-            assert DTEParamMap.encode(long_key, v) == BOOLEAN.encode(v)
-    else:
-        for v in (0, 1, 300, 86400):
-            assert DTEParamMap.encode(long_key, v) == str(int(v))
+def test_backup_cell_params_removed(long_key, short_key):
+    # Firmware reserved these slots; pylinkit must not offer keys the device
+    # now rejects (PARAM_KEY_NOT_FOUND).
+    with pytest.raises(Exception):
+        DTEParamMap.param_to_key(long_key)
+    with pytest.raises(Exception):
+        DTEParamMap.key_to_param(short_key)
 
 
 # --- fake transport for wire-format inspection ------------------------------
