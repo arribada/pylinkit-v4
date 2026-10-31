@@ -85,11 +85,13 @@ class Tracker:
 
     def smd_firmware_update(self, data, mode='uart', timeout=None):
         """Send SMD module firmware update.
-        mode: 'uart' (file_id=3) or 'spi' (file_id=4)"""
+        mode: 'uart' (file_id=3) or 'spi' (file_id=4).
+        Returns False when the LinkIt refuses the file: from v4.1.0 it refuses
+        the id of the transport it was not built for, before any byte is sent."""
         file_id = 3 if mode == 'uart' else 4
         if self._ota is None:
             raise RuntimeError("OTA not available on this transport (read-only)")
-        self._ota.send_update_file(file_id, data, timeout)
+        return self._ota.send_update_file(file_id, data, timeout)
 
     def paspw(self, json_file_data):
         self._dte.paspw(json_file_data)

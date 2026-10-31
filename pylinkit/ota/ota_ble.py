@@ -35,7 +35,7 @@ class BLEOTAUpdater(OTAUpdater):
             print('Received ACK, sending data....')
         else:
             print('Received NACK, aborting....')
-            return
+            return False
         for i in range(0, total_length, OTA_CHUNK_SIZE):
             chunk = data[i:i + OTA_CHUNK_SIZE]
             self._transport.ota_send_chunk(chunk)
@@ -44,7 +44,7 @@ class BLEOTAUpdater(OTAUpdater):
             if self._status:
                 print('Aborted remotely')
                 self._transport.ota_abort()
-                return
+                return False
         self._transport.ota_finish()
         print('Data has been submitted...')
         print('Waiting for image transfer ACK...this may take some time...CTRL-C to abort')
@@ -55,8 +55,9 @@ class BLEOTAUpdater(OTAUpdater):
         if self._status == 0:
             print('Image transfer ACK')
             time.sleep(3)
-        else:
-            print('Image transfer NACK')
+            return True
+        print('Image transfer NACK')
+        return False
 
     def _status_handler(self, data):
         # File Upload Status is 3 bytes:

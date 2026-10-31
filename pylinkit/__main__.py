@@ -5,11 +5,11 @@ import time
 import importlib.metadata
 from datetime import datetime, timezone
 
-from . import Scanner, Tracker
+from . import Scanner, Tracker, smd_dfu
 from .transport import TransportType, create_transport
 from .transport.serial import SerialTransport
 from .protocol.dte_commands import DTECommands
-from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, create_wrapped_file_with_crc32, create_smd_wrapped_file, stm32_crc32
+from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, create_wrapped_file_with_crc32
 
 erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws', 'mortality']
 dumpd_options = ['system', 'gnss', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws', 'mortality']
@@ -160,13 +160,19 @@ smd_group.add_argument('--satvf', type=int, choices=[0, 1], required=False, meta
                             '0=read-only, 1=rewrite module on mismatch')
 smd_group.add_argument('--smdfw', type=argparse.FileType('rb'), required=False,
                        help='SMD module firmware binary for DFU update')
-smd_group.add_argument('--smdfw_mode', type=str, choices=['uart', 'spi'], default='uart', required=False,
-                       help='SMD DFU transport mode: uart or spi (default: uart)')
+smd_group.add_argument('--smdfw_mode', type=str, choices=['uart', 'spi'], default=None, required=False,
+                       help='SMD DFU transport, the one the LinkIt firmware is built for '
+                            '(default: the variant written in the image, _Uart or _Spi)')
+smd_group.add_argument('--smdfw_switch_variant', action='store_true', required=False,
+                       help='Allow an image of the other variant: the module then speaks only that '
+                            'transport, and the LinkIt needs a firmware built for it')
 smddfu_actions = {'enter': 0, 'exit': 1, 'status': 2, 'update': 3, 'info': 4, 'version': 5}
 smd_group.add_argument('--smddfu', type=str, choices=smddfu_actions.keys(), required=False,
                        help='SMD DFU action (enter, exit, status, update, info, version)')
 smd_group.add_argument('--smdtst', action='store_true', required=False,
                        help='Run SMD SPI test')
+smd_group.add_argument('--yes', action='store_true', required=False,
+                       help='Answer yes to confirmations (--smdfw)')
 smd_group.add_argument('--kimbr', action='store_true', required=False,
                        help='Start KIM2 UART bridge (USB <-> KIM2 AT commands, +++\\r\\n to exit)')
 
@@ -339,6 +345,15 @@ def setup_logging(enabled, level):
             logging.getLogger().setLevel(logging.INFO)
         elif level == 'debug':
             logging.getLogger().setLevel(logging.DEBUG)
+
+
+def confirm(assume_yes, question):
+    if assume_yes:
+        return True
+    try:
+        return input(question).strip().lower() in ('o', 'oui', 'y', 'yes')
+    except (EOFError, KeyboardInterrupt):
+        return False
 
 
 def main():
@@ -1138,24 +1153,8 @@ def main():
             print(f"RTCW FAILED: {e}")
 
     if args.smdfw:
-        fw_data = args.smdfw.read()
-        fw_crc = stm32_crc32(fw_data)
-        print(f"SMD firmware size: {len(fw_data)} bytes")
-        print(f"SMD firmware STM32 CRC32: 0x{fw_crc:08X}")
-        print(f"SMD DFU mode: {args.smdfw_mode.upper()}")
-        print(f"  file_id={'3 (UART)' if args.smdfw_mode == 'uart' else '4 (SPI)'}")
-        wrapped = create_smd_wrapped_file(fw_data)
-        dev.smd_firmware_update(wrapped, mode=args.smdfw_mode, timeout=args.timeout)
-        if args.smdfw_mode == 'spi':
-            print("SPI DFU: waiting for device to complete flashing (up to 3min)...")
-            try:
-                result = dev.wait_smd_dfu_result(timeout=180.0)
-                if result['status'] == 0:
-                    print(f"SPI DFU SUCCESS: progress={result['progress']}% firmware={result['info']}")
-                else:
-                    print(f"SPI DFU FAILED: {result['info']}")
-            except TimeoutError:
-                print("SPI DFU: no response from device (timeout 180s)")
+        smd_dfu.update(dev, args.smdfw.read(), args.smdfw_mode, args.smdfw_switch_variant,
+                       lambda question: confirm(args.yes, question), ota_timeout=args.timeout)
 
 
 if __name__ == "__main__":
