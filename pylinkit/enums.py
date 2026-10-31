@@ -151,6 +151,58 @@ ARGOS_BLIND_RETX_PERIOD_S_HELP = (
 # false TX error.
 ARGOS_BLIND_MAX_WINDOW_S = 7200
 
+# --- RSPB TPL5111 clock (PWP04/PWP06; PWP07/PWP08 are shown by clock.py) -----
+WAKEUP_PERIOD_HELP = (
+    "Période pour laquelle la résistance du TPL5111 a été choisie (1 h ≈ 124,9 kΩ). "
+    "Doit correspondre à la résistance montée. "
+    "La modifier efface la période mesurée (PWP08)."
+)
+LAST_KNOWN_RTC_HELP = "Sur RSPB : instant du démarrage du dernier cycle."
+
+# --- Flash journal level (DBP02 SYSTEM_LOG_LEVEL, firmware v4.2.1) -------------
+# UINT 0..3 on the wire. Only shown, read or written when PARML lists DBP02: no
+# published firmware (v4.0.0 to v4.2.0) has it, and that is not an error.
+SYSTEM_LOG_LEVEL_LABELS = {0: 'OFF', 1: 'ERROR', 2: 'WARN', 3: 'INFO'}
+SYSTEM_LOG_LEVEL_DEFAULT = 3
+SYSTEM_LOG_LEVEL_TITLE = "Journal flash"
+SYSTEM_LOG_LEVEL_HELP = (
+    "WARN pour une balise qui ne sera pas récupérée : elle n'écrit plus que ce "
+    "qui ne va pas. Pris en compte à la sortie du mode configuration."
+)
+NOT_ON_THIS_FIRMWARE = "non disponible sur ce firmware"
+
+
+def system_log_level_label(value) -> str:
+    """'WARN', ... for DBP02, or 'inconnu (N)' for a value a later firmware
+    may return: shown raw, never rewritten."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return f"inconnu ({value})"
+    return SYSTEM_LOG_LEVEL_LABELS.get(n, f"inconnu ({n})")
+
+
+# --- RunCam over UART (CAP06/CAP07, firmware v4.2.1 CAM_CONTROL=UART builds) ---
+CAM_REC_MODE_LABELS = {0: 'TOGGLE', 1: 'AUTO', 2: 'COMMANDS'}
+CAM_REC_MODE_TITLE = "Comportement de la caméra à l'allumage"
+CAM_REC_MODE_HELP = (
+    "Doit correspondre au réglage d'enregistrement automatique du menu de la "
+    "caméra. Recommandé : enregistrement automatique désactivé dans la caméra et "
+    "TOGGLE ici, pour que l'heure soit réglée avant chaque fichier. Un désaccord "
+    "fonctionne quand même (détecté sur la carte SD) mais coûte un appui et un "
+    "petit fichier en trop à chaque session. COMMANDS : pour essais uniquement "
+    "(la Split 4 ignore ces commandes)."
+)
+# CAP07 codes, also those of CAT05 and of CAMTST's resolution field, where 0
+# means "unknown" rather than "keep the camera's own".
+CAM_RESOLUTION_LABELS = {1: '1080P60', 2: '1080P50', 3: '1080P30', 4: '720P60'}
+CAM_RESOLUTION_KEEP_LABEL = "ne pas toucher"
+CAM_RESOLUTION_TITLE = "Résolution d'enregistrement"
+CAM_RESOLUTION_HELP = (
+    "720P60 enregistre ~2,6 fois plus longtemps (≈1,9 Mo/s contre ≈5 Mo/s pour "
+    "les trois modes 1080p). Appliquée par un redémarrage de la caméra."
+)
+
 
 # Symmetric swap between KineisModulation and SmdArgosModulation (byte 9 of radioconf).
 # LDK and LDA2 are swapped: Kineis LDK=0 <-> SMD 1, Kineis LDA2=1 <-> SMD 0, VLDA4=2 unchanged.

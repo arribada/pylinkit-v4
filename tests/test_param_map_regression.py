@@ -150,6 +150,29 @@ SNAPSHOT = [
     ("ARGOS_BLIND_EN",                    "ARP44", "BOOLEAN"),
     ("ARGOS_BLIND_RETX_NB",               "ARP45", "UINT"),
     ("ARGOS_BLIND_RETX_PERIOD_S",         "ARP46", "UINT"),
+
+    # 2026-10 firmware — DX1 Doppler extension, Argos modulation guard (STATR),
+    # RSPB clock state (PWP07 all boards, PWP08 RSPB only)
+    ("SWS_SENSOR_ENABLE_TX_MODE",         "UNP26", "UINT"),
+    ("ARGOS_CFG_WARNINGS",                "ART12", "UINT"),
+    ("ARGOS_MASTER_MODULATION",           "ART13", "UINT"),
+    ("ARGOS_MASTER_RCONF_FP",             "ART14", "UINT"),
+    ("ARGOS_MASTER_SYNC_ATTEMPT_FP",      "ART15", "UINT"),
+    ("LAST_TIME_SYNC",                    "PWP07", "UINT"),
+    ("WAKEUP_PERIOD_MEASURED_MS",         "PWP08", "UINT"),
+
+    # Firmware v4.2.1 — flash journal level (every build), RunCam over UART
+    # (CAP06/CAP07, last session CAT01-CAT06) and camera mode CAT00
+    ("SYSTEM_LOG_LEVEL",                  "DBP02", "UINT"),
+    ("CAM_REC_MODE",                      "CAP06", "UINT"),
+    ("CAM_RESOLUTION",                    "CAP07", "UINT"),
+    ("CAM_CONTROL_MODE",                  "CAT00", "UINT"),
+    ("CAM_LAST_OUTCOME",                  "CAT01", "UINT"),
+    ("CAM_SD_FREE_MB",                    "CAT02", "UINT"),
+    ("CAM_SD_TOTAL_MB",                   "CAT03", "UINT"),
+    ("CAM_REC_TIME_LEFT_S",               "CAT04", "UINT"),
+    ("CAM_RESOLUTION_READ",               "CAT05", "UINT"),
+    ("CAM_FEATURES",                      "CAT06", "UINT"),
 ]
 
 
@@ -196,6 +219,30 @@ def test_removed_keys_stay_removed(removed_long):
         f'{removed_long} was deliberately removed; if you re-added it, '
         f'update REMOVED in this file with a comment explaining why.'
     )
+
+
+# ---------------------------------------------------------------------------
+# Read-only keys — mirror of is_writable == false in the firmware param table
+# (core/protocol/dte_params.cpp, fw v4.2.1). PARMW never sends these.
+# ---------------------------------------------------------------------------
+
+FIRMWARE_READ_ONLY = {
+    "IDT03", "ART01", "ART02", "POT03", "ART03", "ART10", "ART11", "IDT04",
+    "POT06", "PWP02", "IDT10", "PWP06", "SYT01", "MTP07", "SMP01", "PPT01",
+    "PPT02", "PPT03", "PPT04", "MRT01", "ART12", "ART13", "ART14", "ART15",
+    "PWP07", "PWP08",
+    "CAT00", "CAT01", "CAT02", "CAT03", "CAT04", "CAT05", "CAT06",
+}
+
+
+def test_read_only_keys_match_firmware():
+    assert DTEParamMap.READ_ONLY_KEYS == FIRMWARE_READ_ONLY
+
+
+def test_read_only_keys_exist_in_map():
+    keys = {e[1] for e in DTEParamMap.param_map}
+    assert DTEParamMap.READ_ONLY_KEYS <= keys
+    assert DTEParamMap.EXPORT_EXCLUDED_KEYS <= DTEParamMap.READ_ONLY_KEYS
 
 
 # ---------------------------------------------------------------------------

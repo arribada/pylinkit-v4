@@ -5,6 +5,7 @@ from threading import Event
 from .dte_protocol import DTEProtocol, DTEProtocolError
 from .dte_params import DTEParamMap
 from .dte_types import BASE64, PASPW, LOGFILE
+from ..camera import CAMTST_TIMEOUT_S, parse_camtst
 from ..enums import BaseLogDType, BaseEraseType, BaseSensorCalType, ComponentPower, ArgosModulation, SensrMask, DTEError
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,10 @@ class ParmwPartialError(Exception):
         self.cmd = cmd
         self.rejected_keys = rejected_keys
         super().__init__(f'{cmd} - partial write, rejected keys: {", ".join(rejected_keys)}')
+
+
+class CommandUnavailable(Exception):
+    """The connected build does not have this command: it was not sent."""
 
 
 class DTECommands:
@@ -31,12 +36,22 @@ class DTECommands:
         self._protocol = DTEProtocol()
         self._event = Event()
         self._terminate = False
+        # Command name the pending request waits for (None: any frame).
+        self._expect = None
         transport.subscribe_data(self._data_handler)
 
+    @staticmethod
+    def _command_name(frame):
+        """'PARMR' for '$PARMR#000;' or '$O;PARMR#...', else None."""
+        m = re.match(r'^\$(?:[ON];)?([A-Z]+)#', frame)
+        return m.group(1) if m else None
+
     def _send_and_receive(self, command_str, timeout=10.0):
-        """Send a DTE command string and wait for the complete response."""
+        """Send a DTE command string and wait for the complete response, the
+        one carrying the same command name (see ``_data_handler``)."""
         self._protocol = DTEProtocol()
         self._terminate = False
+        self._expect = self._command_name(command_str)
         self._event.clear()
         logger.debug('PC -> DTE: %s', command_str.encode('ascii'))
         self._transport.send_data(command_str.encode('ascii'))
@@ -52,11 +67,25 @@ class DTECommands:
     def _data_handler(self, data):
         """Callback for incoming data from transport."""
         logger.debug('PC <- DTE: %s', data.decode('ascii', errors='replace'))
+        if self._terminate:
+            # The answer is complete and not yet consumed: a frame arriving
+            # now must not be glued onto it.
+            logger.debug('Ignoring a DTE frame after the complete answer')
+            return
         try:
             self._protocol.push(data.decode('ascii', errors='replace'))
-            self._terminate = self._protocol.is_terminated()
+            terminated = self._protocol.is_terminated()
         except DTEProtocolError:
-            self._terminate = True
+            terminated = True
+        if terminated and self._expect is not None:
+            name = self._command_name(self._protocol.data())
+            if name is not None and name != self._expect:
+                # Before v4.2.0 the firmware answers a command it does not know
+                # under the name of another one: never the answer awaited.
+                logger.warning('Ignoring a DTE answer to %s while waiting for %s', name, self._expect)
+                self._protocol = DTEProtocol()
+                terminated = False
+        self._terminate = terminated
         self._event.set()
 
     def _encode_command(self, command, params=[], param_values={}, args=[]):
@@ -65,13 +94,19 @@ class DTECommands:
         elif args:
             payload = ','.join(args)
         elif param_values:
+            # PARMW payload. parmw() already drops firmware-owned params; this
+            # is the last guard before the wire, for any other caller.
+            read_only = DTEParamMap.read_only_names(param_values)
+            if read_only:
+                raise ValueError('read-only param(s) cannot be written: {}'.format(', '.join(read_only)))
             payload = ','.join([
                 '{}={}'.format(DTEParamMap.param_to_key(x), DTEParamMap.encode(x, param_values[x]))
                 for x in param_values
             ])
         else:
             payload = ''
-        return '${cmd}#{length:03x};{payload}\r'.format(cmd=command, length=len(payload), payload=payload)
+        # Length field: 3 hex digits, upper case like the firmware's %03X.
+        return '${cmd}#{length:03X};{payload}\r'.format(cmd=command, length=len(payload), payload=payload)
 
     def _decode_response(self, resp):
         success_regexp = r'^\$O;(?P<cmd>[A-Z]+)#(?P<len>[0-9a-fA-F]+);(?P<payload>.*)\r$'
@@ -102,21 +137,40 @@ class DTECommands:
     def _decode_key_values(self, payload):
         m = {}
         for x in payload.strip().split(','):
+            if '=' not in x:
+                continue
             key, value = x.split('=', 1)
+            if DTEParamMap._find_key(key) is None:
+                # A later firmware appends keys to its table: not an error.
+                logger.debug('Ignoring key unknown to pylinkit: %s=%s', key, value)
+                continue
             try:
                 m[DTEParamMap.key_to_param(key)] = DTEParamMap.decode(key, value)
             except Exception as e:
-                logger.warning('Skipping unknown/invalid param key=%s value=%s: %s', key, value, e)
+                logger.warning('Skipping invalid param key=%s value=%s: %s', key, value, e)
                 continue
         return m
 
+    @staticmethod
+    def _only_requested(params, values):
+        """A targeted read keeps the keys asked for only. Up to v4.1.10 a key
+        the firmware does not know makes it answer with EVERYTHING; a key asked
+        for and absent from the answer is simply missing from the result."""
+        if not params:
+            return values
+        wanted = set(params)
+        extra = len([p for p in values if p not in wanted])
+        if extra:
+            logger.debug('Targeted read: %d unrequested key(s) dropped', extra)
+        return {p: v for p, v in values.items() if p in wanted}
+
     def parmr(self, params=[]):
         resp = self._send_and_receive(self._encode_command('PARMR', params=params))
-        return self._decode_key_values(self._decode_response(resp))
+        return self._only_requested(params, self._decode_key_values(self._decode_response(resp)))
 
     def statr(self, params=[]):
         resp = self._send_and_receive(self._encode_command('STATR', params=params))
-        return self._decode_key_values(self._decode_response(resp))
+        return self._only_requested(params, self._decode_key_values(self._decode_response(resp)))
 
     # PARMW chunking — see firmware heap fragmentation issue with > ~30 params
     # in a single PARMW: newlib sscanf + per-param substr() exhausts the 64 KB
@@ -131,13 +185,13 @@ class DTECommands:
         """Return the list of chunks that ``parmw`` would send, without sending.
 
         Each chunk is a dict ``{param_name: value}`` preserving the ordering used
-        on the wire (sorted by short DTE key)."""
+        on the wire (sorted by short DTE key). Read-only params are left out."""
         cs = chunk_size if chunk_size is not None else self.PARMW_DEFAULT_CHUNK_SIZE
         if cs < 1:
             raise ValueError(f'chunk_size must be >= 1, got {cs}')
         # Sort by short DTE key so families (LRP*, GNP*, ARP*…) stay contiguous.
         ordered = sorted(
-            param_values.items(),
+            DTEParamMap.writable_only(param_values).items(),
             key=lambda kv: DTEParamMap.param_to_key(kv[0]),
         )
         return [
@@ -150,7 +204,9 @@ class DTECommands:
         """Write parameters in chunks to avoid firmware heap pressure.
 
         Returns ``{param_name: True (written) | False (rejected)}`` for every
-        param in the input (same return type as the pre-chunking API).
+        writable param in the input (same return type as the pre-chunking API).
+        Read-only params (``DTEParamMap.READ_ONLY_KEYS``, e.g. PWP07/PWP08) are
+        never sent and are absent from the result.
 
         Args:
             param_values:    dict of {long_param_name: value}.
@@ -170,10 +226,19 @@ class DTECommands:
               params are marked False.
             - Order: input is sorted by short DTE key on the wire (atomic
               writes — firmware does not care about ordering).
+            - Values are validated first (codec, ``VALUE_RANGES``, text length):
+              any invalid one raises ``ValueError`` and NOTHING is sent.
         """
         if not param_values:
             return {}
 
+        read_only = DTEParamMap.read_only_names(param_values)
+        if read_only:
+            logger.info('PARMW: not sending read-only param(s): %s', ', '.join(read_only))
+        invalid = DTEParamMap.invalid_values(DTEParamMap.writable_only(param_values))
+        if invalid:
+            raise ValueError('PARMW: invalid value(s), nothing sent: ' + '; '.join(
+                f'{p}: {reason}' for p, reason in invalid.items()))
         chunks = self.parmw_plan(param_values, chunk_size=chunk_size)
         timeout = chunk_timeout if chunk_timeout is not None else self.PARMW_DEFAULT_CHUNK_TIMEOUT_S
         retries = max_retries if max_retries is not None else self.PARMW_DEFAULT_RETRIES
@@ -683,10 +748,12 @@ class DTECommands:
 
     def smddfu(self, action):
         """Send SMDDFU command.
-        Actions: 0=ENTER, 1=EXIT, 2=STATUS, 3=UPDATE, 4=INFO, 5=VERSION"""
+        Actions: 0=ENTER, 1=EXIT, 2=STATUS, 3=UPDATE, 4=INFO, 5=VERSION.
+        VERSION is the read-only SPI check; it can block ~60 s when the module
+        does not answer."""
         resp = self._send_and_receive(
             self._encode_command('SMDDFU', args=[str(action)]),
-            timeout=10.0
+            timeout=65.0 if int(action) == 5 else 10.0
         )
         payload = self._decode_response(resp)
         parts = payload.split(',')
@@ -704,6 +771,7 @@ class DTECommands:
         Returns dict with status, dfu_mode, progress, info."""
         self._protocol = DTEProtocol()
         self._terminate = False
+        self._expect = 'SMDDFU'
         self._event.clear()
         logger.debug('Waiting for async SMDDFU notification (timeout=%ss)', timeout)
         while True:
@@ -724,12 +792,30 @@ class DTECommands:
         }
 
     def smdtst(self):
-        """Send SMDTST command. Tests 14 SPI A+ commands on the SMD module."""
+        """Send SMDTST command. Tests 14 SPI A+ commands on the SMD module.
+
+        TRANSMITS: its phase 2 ("TX flow test") is a real Argos transmission
+        on every firmware version. Antenna or load, and a supply of at least
+        1 A, required. For a read-only SPI check use ``smddfu(5)`` (version)."""
         resp = self._send_and_receive(
             self._encode_command('SMDTST'),
             timeout=30.0
         )
         return self._decode_response(resp)
+
+    def camtst(self, timeout=None):
+        """Camera test (CAMTST): the camera's real session, every step checked
+        on its SD card. Asynchronous: answered when the camera is off again,
+        ~20 s, ~40 s when CAP07 restarts it, 180 s at most (status TIMEOUT).
+
+        Low level, sends unconditionally: only CAM_CONTROL=UART builds (CAT00 =
+        2) have it, see ``Tracker.camtst()`` which checks. Returns the answer
+        parsed by ``camera.parse_camtst``."""
+        resp = self._send_and_receive(
+            self._encode_command('CAMTST'),
+            timeout=timeout or CAMTST_TIMEOUT_S
+        )
+        return parse_camtst(self._decode_response(resp))
 
     def satdp(self):
         """Start Doppler calibration. Periodic satellite TX until device reset.
@@ -780,6 +866,7 @@ class DTECommands:
         """Wait for a single unsolicited pushed frame. Returns raw response string or None on timeout."""
         self._protocol = DTEProtocol()
         self._terminate = False
+        self._expect = None
         self._event.clear()
         while True:
             is_set = self._event.wait(timeout)

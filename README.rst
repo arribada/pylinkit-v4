@@ -114,6 +114,71 @@ The file must have a ``[PARAM]`` section. Timestamp parameters
    ``ARGOS_HEXID``. Re-push the full config (full ``--parmw``) before
    deployment.
 
+**Read-only parameters.** Firmware-owned values (counters, battery,
+``LAST_KNOWN_RTC``, ``PPT*``, ``ART12``–``ART15``, ``PWP07``, ``PWP08``,
+``CAT00``–``CAT06``…, see ``DTEParamMap.READ_ONLY_KEYS``) are never sent by
+PARMW: ``--parmw`` lists and ignores them when the file carries some.
+``PWP07``, ``PWP08`` and ``CAT01``–``CAT06`` are also left out of the
+``--parmr`` export.
+
+**The firmware's PARML list decides.** Each build lists exactly the keys it
+implements (``$PARML``), and that list is right on every version, unlike the
+version number. ``--parmw`` (``Tracker.push``) therefore:
+
+- leaves out every key the firmware does not list and reports it
+  (``SYSTEM_LOG_LEVEL (DBP02) ignoré : firmware sans ce paramètre``): the rest
+  of the file is applied, and this is not a failure;
+- refuses before sending any value the tool knows to be invalid (``DBP02``
+  0..3, ``CAP06`` 0..2, ``CAP07`` 0..4, text over 128 characters);
+- reads back every key the firmware accepted and reports any difference.
+
+Targeted reads (``Tracker.read``) only ask for listed keys, status keys
+(``..T..``) through STATR, and keep only the keys asked for (up to v4.1.10 an
+unknown key returns the whole configuration). A reply is matched to its request
+by command name. If the first full read fails (up to v4.2.0 it can reboot a tag
+that ran for hours), ``Tracker.sync`` reconnects and reads once more.
+
+**Flash journal level** (``SYSTEM_LOG_LEVEL`` = ``DBP02``, firmware v4.2.1,
+every build). ``UINT`` 0 OFF, 1 ERROR, 2 WARN, 3 INFO (default, what every
+earlier firmware wrote). WARN suits a tag that will not be recovered: it only
+writes what goes wrong. Applied when the tag leaves configuration mode. No
+published firmware (v4.0.0 to v4.2.0) has it: ``--parmr`` then shows
+``non disponible sur ce firmware``.
+
+**Camera** (RunCam). The mode comes from PARML: ``CAT00`` when listed (1 BUTTON,
+2 UART, read with STATR), else ``CAP01`` means BUTTON (every published firmware),
+else no camera. UART builds (firmware v4.2.1) add ``CAM_REC_MODE`` (``CAP06``:
+0 TOGGLE, 1 AUTO, 2 COMMANDS) and ``CAM_RESOLUTION`` (``CAP07``: 0 keep the
+camera's own, 1 1080P60, 2 1080P50, 3 1080P30, 4 720P60), and the last session
+in ``CAT01``–``CAT06``. ``--camera`` shows all of it; ``--camtst`` runs the
+camera test (UART builds only, never sent elsewhere, up to 185 s). Chained after
+a ``--parmw`` that sets ``CAP07``, the test applies and confirms the resolution.
+Wording and parsing live in ``pylinkit.camera``.
+
+**SMDTST transmits**: its phase 2 is a real Argos transmission. ``--smdtst``
+asks for confirmation (``--yes`` to skip it); ``--smddfu version`` is the
+read-only SPI check.
+
+**RSPB clock** (firmware 2026-10). ``--parmr`` prints a clock block after the
+export:
+
+- ``LAST_TIME_SYNC`` (``PWP07``, every board): UTC date of the last trusted
+  time setting (GNSS fix or ``$RTCW``) and its age; ``jamais`` when 0 (never,
+  or wiped by a non-TPL wake-up: magnet, watchdog, OTA).
+- ``WAKEUP_PERIOD_MEASURED_MS`` (``PWP08``, RSPB only): the period the TPL5111
+  resistor really gives, learnt from GNSS fixes, with its deviation from
+  ``WAKEUP_PERIOD`` (``PWP04``). 0 = not measured yet; changing ``PWP04``
+  resets it. Beyond ±10 % a warning asks to check ``PWP04``.
+- On RSPB, the estimated clock accuracy ±(10 s + t × age of ``PWP07``), with
+  t = 2 % once ``PWP08`` is within ±10 % of ``PWP04`` × 1000, 5 % otherwise;
+  unbounded when ``PWP07`` is 0.
+- On RSPB, CloudLocate (``GNSS_FASTLOC_MODE`` = 2) with ``MEASC12``
+  (``GNSS_CLOUDLOCATE_FORMAT`` = 0) is flagged: that format carries the clock's
+  absolute time, so prefer ``MEAS20`` (= 1).
+
+The computations live in ``pylinkit.clock`` (pure functions, usable from a
+GUI); the ``PWP04`` / ``PWP06`` help texts in ``pylinkit.enums``.
+
 
 Argos transmission semantics
 ----------------------------

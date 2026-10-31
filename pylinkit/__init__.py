@@ -1,9 +1,40 @@
 __version__ = '4.1.1'
 
+import logging
+import time
+from dataclasses import dataclass, field
+
+from . import camera
 from .transport import TransportType, create_transport
 from .transport.ble import BLETransport
-from .protocol.dte_commands import DTECommands, ParmwPartialError
+from .protocol.dte_commands import DTECommands, ParmwPartialError, CommandUnavailable
+from .protocol.dte_params import DTEParamMap
 from .ota.ota_ble import BLEOTAUpdater
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PushPlan:
+    """How ``Tracker.push`` splits a configuration before anything is sent."""
+    to_send: dict       # {name: value}: valid, writable, listed by PARML
+    read_only: list     # firmware-owned: never sent
+    invalid: dict       # {name: reason}: refused by the tool (range, codec, length)
+    unsupported: list   # not listed by PARML: left out, NOT a failure
+
+
+@dataclass
+class PushResult(PushPlan):
+    written: list = field(default_factory=list)      # accepted by the firmware
+    rejected: list = field(default_factory=list)     # refused by the firmware, or chunk aborted
+    mismatched: dict = field(default_factory=dict)   # {name: (sent, read back)}
+    unverified: list = field(default_factory=list)   # accepted, missing from the read-back
+
+    @property
+    def ok(self):
+        """Everything sendable is on the board as asked. Unsupported keys do
+        not count: a firmware without them is the common case, not an error."""
+        return not (self.invalid or self.rejected or self.mismatched or self.unverified)
 
 
 class Scanner:
@@ -19,7 +50,15 @@ class Tracker:
     Supports BLE and USB serial transports.
     """
 
+    # Keys per targeted read, like the PARMW chunks (firmware heap).
+    READ_CHUNK = 20
+    # How long reconnect() waits for the device to come back.
+    RECONNECT_WAIT_S = 30.0
+
     def __init__(self, address, transport_type=TransportType.BLE, timeout=5.0, **transport_kwargs):
+        self._address = address
+        self._timeout = timeout
+        self._parml = None
         self._transport = create_transport(transport_type, **transport_kwargs)
         self._transport.connect(address, timeout=timeout)
         self._dte = DTECommands(self._transport)
@@ -44,10 +83,125 @@ class Tracker:
         """Expose the underlying transport (for bridge raw-mode usage)."""
         return self._transport
 
+    def reconnect(self, wait_s=None):
+        """Drop the link and connect again, retrying while the device comes
+        back (a rebooted tag re-enumerates its USB port within seconds)."""
+        try:
+            self._transport.disconnect()
+        except Exception:
+            pass
+        deadline = time.monotonic() + (self.RECONNECT_WAIT_S if wait_s is None else wait_s)
+        while True:
+            try:
+                self._transport.connect(self._address, timeout=self._timeout)
+                break
+            except Exception:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(1.0)
+        # A new DTE layer: a BLE notification subscription lives as long as
+        # its connection.
+        self._dte = DTECommands(self._transport)
+        self._parml = None
+
     def sync(self):
-        a = self._dte.parmr()
+        # Up to v4.2.0, the first full PARMR after long hours in operation can
+        # make the tag reboot (fragmented heap) and the link drops. Reconnecting
+        # and reading once more passes.
+        try:
+            a = self._dte.parmr()
+        except Exception as e:
+            logger.warning('Full PARMR failed (%s): reconnecting and reading once more', e)
+            self.reconnect()
+            a = self._dte.parmr()
         b = self._dte.statr()
         self._map = {**a, **b}
+
+    def parml(self, refresh=False):
+        """Keys the connected build implements ($PARML), cached for the
+        session. The one source that is right on every firmware version: what
+        is shown, read, written and sent follows it, never the version (IDT03)."""
+        if self._parml is None or refresh:
+            self._parml = frozenset(self._dte.parml())
+        return self._parml
+
+    def supports(self, param):
+        """True if the firmware lists ``param`` (long name or short key)."""
+        key = DTEParamMap._find_key(param)
+        return key is not None and key in self.parml()
+
+    def read(self, params):
+        """Read ``params`` (long names), only those the firmware lists: a key it
+        does not list is never asked for (up to v4.1.10 the answer would be the
+        whole configuration, from v4.2.0 an error). Status keys (``..T..``) go
+        through STATR. A key missing from the answer is absent from the result."""
+        supported = self.parml()
+        names = [p for p in dict.fromkeys(params) if DTEParamMap._find_key(p) in supported]
+        status = [p for p in names if DTEParamMap.is_status_key(DTEParamMap._find_key(p))]
+        config = [p for p in names if p not in status]
+        out = {}
+        for reader, group in ((self._dte.parmr, config), (self._dte.statr, status)):
+            for i in range(0, len(group), self.READ_CHUNK):
+                out.update(reader(group[i:i + self.READ_CHUNK]))
+        return out
+
+    def plan_push(self, param_values):
+        """Split a configuration as ``push`` will, without writing anything."""
+        read_only = DTEParamMap.read_only_names(param_values)
+        writable = DTEParamMap.writable_only(param_values)
+        invalid = DTEParamMap.invalid_values(writable)
+        valid = {p: v for p, v in writable.items() if p not in invalid}
+        unsupported = DTEParamMap.unsupported_names(valid, self.parml())
+        to_send = {p: v for p, v in valid.items() if p not in unsupported}
+        return PushPlan(to_send, read_only, invalid, unsupported)
+
+    def push(self, param_values, chunk_size=None, chunk_timeout=None,
+             max_retries=None, progress=None, verify=True):
+        """Write a configuration file or template. Returns a ``PushResult``.
+
+        Only what can be written is sent: read-only keys, values the tool
+        refuses (``DTEParamMap.invalid_values``) and keys the firmware does not
+        list (PARML) are left out and reported. A key left out because the
+        firmware lacks it is not a failure: the rest of the file is applied.
+        With ``verify``, the keys the firmware accepted are read back and
+        compared (v4.0.0 and v4.0.1 skip an unknown key in silence)."""
+        plan = self.plan_push(param_values)
+        result = PushResult(**vars(plan))
+        if plan.unsupported:
+            logger.debug('Not sent, firmware without them: %s', ', '.join(plan.unsupported))
+        if not plan.to_send:
+            return result
+        written = self.set(plan.to_send, chunk_size=chunk_size, chunk_timeout=chunk_timeout,
+                           max_retries=max_retries, progress=progress)
+        result.written = [p for p, ok in written.items() if ok]
+        result.rejected = [p for p, ok in written.items() if not ok]
+        if verify and result.written:
+            back = self.read(result.written)
+            for p in result.written:
+                if p not in back:
+                    result.unverified.append(p)
+                elif not DTEParamMap.same_value(p, plan.to_send[p], back[p]):
+                    result.mismatched[p] = (plan.to_send[p], back[p])
+        return result
+
+    def camera_mode(self):
+        """``camera.BUTTON``, ``camera.UART`` or None (no camera): CAT00 when
+        PARML lists it, else CAP01 means BUTTON. See ``pylinkit.camera``."""
+        supported = self.parml()
+        control = None
+        if 'CAT00' in supported:
+            control = self.read(['CAM_CONTROL_MODE']).get('CAM_CONTROL_MODE')
+        return camera.camera_mode(supported, control)
+
+    def camtst(self, timeout=None):
+        """Camera test, UART builds only (CAT00 = 2): anywhere else CAMTST is
+        unknown, so it is not sent and ``CommandUnavailable`` is raised. Blocks
+        until the answer (up to 185 s). Returns ``camera.parse_camtst``'s dict."""
+        mode = self.camera_mode()
+        if not camera.camtst_available(mode):
+            raise CommandUnavailable(
+                f'CAMTST not on this build (camera: {mode or "none"}); UART builds only')
+        return self._dte.camtst(timeout)
 
     def set(self, param_values, chunk_size=None, chunk_timeout=None,
             max_retries=None, progress=None):
@@ -220,7 +374,8 @@ class Tracker:
         return self._dte.smddfu(action)
 
     def smdtst(self):
-        """Run SMD SPI test (14 A+ commands). Returns test summary string."""
+        """Run SMD SPI test (14 A+ commands). Returns test summary string.
+        TRANSMITS (phase 2 is a real Argos TX): antenna or load, supply >= 1 A."""
         return self._dte.smdtst()
 
     def wait_smd_dfu_result(self, timeout=180.0):

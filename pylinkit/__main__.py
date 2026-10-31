@@ -1,14 +1,18 @@
 import logging
 import argparse
 import sys
+import textwrap
 import time
 import importlib.metadata
 from datetime import datetime, timezone
 
-from . import Scanner, Tracker, smd_dfu
+from . import Scanner, Tracker, clock, camera, smd_dfu
+from .enums import (WAKEUP_PERIOD_HELP, LAST_KNOWN_RTC_HELP, SYSTEM_LOG_LEVEL_TITLE,
+                    NOT_ON_THIS_FIRMWARE, system_log_level_label)
 from .transport import TransportType, create_transport
 from .transport.serial import SerialTransport
 from .protocol.dte_commands import DTECommands
+from .protocol.dte_params import DTEParamMap
 from .utils import OrderedRawConfigParser, extract_firmware_file_from_dfu, create_wrapped_file_with_crc32
 
 erase_options = ['sensor', 'system', 'all', 'als', 'ph', 'rtd', 'cdt', 'cam', 'axl', 'pressure', 'thermistor', 'tsys01', 'sws', 'mortality']
@@ -68,7 +72,9 @@ cmd_group.add_argument('--rstbw', action='store_true', required=False, help='Res
 cmd_group.add_argument('--factw', action='store_true', required=False,
                        help='Factory reset (WARNING: erases all stored logs and configuration!)')
 cmd_group.add_argument('--parmw', type=argparse.FileType('r'), required=False,
-                       help='Filename to read [PARAM] configuration from')
+                       help='Filename to read [PARAM] configuration from. Only keys '
+                            'the firmware lists (PARML) are sent, the others are '
+                            'reported as ignored; written keys are read back')
 cmd_group.add_argument('--parmw-chunk-size', type=int, default=None, metavar='N',
                        help='PARMW chunk size (default 20, sweet-spot for firmware '
                             'heap; use 10–15 over flaky BLE, do not exceed 30)')
@@ -170,11 +176,24 @@ smddfu_actions = {'enter': 0, 'exit': 1, 'status': 2, 'update': 3, 'info': 4, 'v
 smd_group.add_argument('--smddfu', type=str, choices=smddfu_actions.keys(), required=False,
                        help='SMD DFU action (enter, exit, status, update, info, version)')
 smd_group.add_argument('--smdtst', action='store_true', required=False,
-                       help='Run SMD SPI test')
+                       help='Run SMD SPI test. TRANSMITS: phase 2 is a real Argos TX '
+                            '(antenna or load, supply >= 1 A); asks for confirmation. '
+                            'Read-only SPI check: --smddfu version')
 smd_group.add_argument('--yes', action='store_true', required=False,
-                       help='Answer yes to confirmations (--smdfw)')
+                       help='Answer yes to confirmations (--smdtst, --smdfw)')
 smd_group.add_argument('--kimbr', action='store_true', required=False,
                        help='Start KIM2 UART bridge (USB <-> KIM2 AT commands, +++\\r\\n to exit)')
+
+# === Camera ===
+cam_group = parser.add_argument_group('Camera (RunCam)')
+cam_group.add_argument('--camera', action='store_true', required=False,
+                       help='Show the camera mode (BUTTON/UART), its settings and '
+                            'the last camera session (CAT01-CAT06)')
+cam_group.add_argument('--camtst', action='store_true', required=False,
+                       help='Camera test before deployment, UART camera builds only '
+                            '(a real session checked on the SD card, up to 185 s). '
+                            'With --parmw setting CAM_RESOLUTION, the file is written '
+                            'first and the test applies and confirms the resolution')
 
 # === RF Test ===
 rf_group = parser.add_argument_group('RF Test')
@@ -334,6 +353,181 @@ def bridge_terminal(dev, module, is_ble):
         pass
 
 
+WARNING_COLOR = '\033[93m'
+RESET_COLOR = '\033[0m'
+
+
+def print_clock_report(params, now=None):
+    """Clock block after --parmr: PWP04/PWP06 with their help, then PWP07,
+    PWP08 and, on RSPB, the estimated clock accuracy and its warnings."""
+    rows = []
+    if 'WAKEUP_PERIOD' in params:
+        rows.append(("WAKEUP_PERIOD (PWP04)", f"{params['WAKEUP_PERIOD']} s", WAKEUP_PERIOD_HELP))
+    if 'LAST_KNOWN_RTC' in params:
+        rows.append(("LAST_KNOWN_RTC (PWP06)", clock.format_epoch(params['LAST_KNOWN_RTC']), LAST_KNOWN_RTC_HELP))
+    rows += [(label, value, None) for label, value in clock.report(params, now)]
+    if not rows:
+        return
+    print("Horloge (RSPB, TPL5111) :" if clock.is_rspb(params) else "Horloge :")
+    width = max(len(label) for label, _, _ in rows)
+    for label, value, help_text in rows:
+        print(f"  {label:<{width}} : {value}")
+        if help_text:
+            indent = ' ' * (width + 5)
+            print(textwrap.fill(help_text, width=100, initial_indent=indent, subsequent_indent=indent))
+    for warning in clock.warnings(params):
+        print(f"{WARNING_COLOR}AVERTISSEMENT : {warning}{RESET_COLOR}")
+
+
+def print_parmw_preflight(dev, params):
+    """Before a PARMW: warn on what the new values mean for the clock, against
+    the board's current values (skipped when the file touches none of them)."""
+    if not any(p in params for p in clock.PREFLIGHT_TRIGGERS):
+        return
+    try:
+        # Only what PARML lists: WAKEUP_PERIOD is RSPB-only.
+        device = dev.read(list(clock.PREFLIGHT_PARAMS))
+    except Exception:
+        device = {}
+    notes, found = clock.parmw_preflight(device, params)
+    for note in notes:
+        print(f"NOTE: {note}")
+    for warning in found:
+        print(f"{WARNING_COLOR}AVERTISSEMENT : {warning}{RESET_COLOR}")
+
+
+VERDICT_COLORS = {camera.OK: '\033[92m', camera.WARN: '\033[93m', camera.ERROR: '\033[91m'}
+
+# What --camera reads: settings, mode and last session (only those PARML lists).
+CAMERA_PARAMS = ('CAM_REC_MODE', 'CAM_RESOLUTION', 'CAM_CONTROL_MODE', 'CAM_LAST_OUTCOME',
+                 'CAM_SD_FREE_MB', 'CAM_SD_TOTAL_MB', 'CAM_REC_TIME_LEFT_S',
+                 'CAM_RESOLUTION_READ', 'CAM_FEATURES')
+
+
+def _print_rows(title, rows):
+    print(title)
+    width = max(len(label) for label, _ in rows)
+    for label, value in rows:
+        print(f"  {label:<{width}} : {value}")
+
+
+def print_log_level(params, supported):
+    """DBP02 after --parmr. A firmware that does not list it (every published
+    one) gets a discreet mention, never an error."""
+    title = f"{SYSTEM_LOG_LEVEL_TITLE} (DBP02)"
+    if 'DBP02' not in supported:
+        print(f"{title} : {NOT_ON_THIS_FIRMWARE}")
+    elif 'SYSTEM_LOG_LEVEL' in params:
+        print(f"{title} : {system_log_level_label(params['SYSTEM_LOG_LEVEL'])}")
+
+
+def print_camera_report(params, supported):
+    """Camera mode, CAP06/CAP07 and the last session; nothing without a camera."""
+    mode = camera.camera_mode(supported, params.get('CAM_CONTROL_MODE'))
+    if mode is None:
+        return False
+    rows = camera.settings_rows(params)
+    if rows:
+        _print_rows(f"Caméra (mode {mode}) :", rows)
+    else:
+        print(f"Caméra : mode {mode}")
+    session = camera.last_session_rows(params)
+    if session:
+        _print_rows("Dernière session caméra :", session)
+    if mode == camera.UART:
+        for reminder in camera.OPERATOR_REMINDERS:
+            print(f"RAPPEL : {reminder}")
+    return True
+
+
+def print_camtst_result(result):
+    color = VERDICT_COLORS.get(camera.verdict(result['status']), '')
+    rows = camera.camtst_rows(result)
+    width = max(len(label) for label, _ in rows)
+    print("Test caméra :")
+    for i, (label, value) in enumerate(rows):
+        line = f"  {label:<{width}} : {value}"
+        print(f"{color}{line}{RESET_COLOR}" if i == 0 else line)
+    for warning in camera.camtst_warnings(result):
+        print(f"{WARNING_COLOR}AVERTISSEMENT : {warning}{RESET_COLOR}")
+
+
+def print_push_plan(plan):
+    """What --parmw leaves out before sending, and why."""
+    if plan.read_only:
+        print(f"Ignored read-only param(s) from file ({len(plan.read_only)}): "
+              f"{', '.join(plan.read_only)}")
+    for name in plan.unsupported:
+        print(f"{name} ({DTEParamMap.param_to_key(name)}) ignoré : firmware sans ce paramètre")
+    for name, reason in plan.invalid.items():
+        print(f"{WARNING_COLOR}REFUSÉ par l'outil, non envoyé : {name} ({reason}){RESET_COLOR}")
+
+
+def print_push_result(result):
+    ok = [p for p in result.written if p not in result.mismatched and p not in result.unverified]
+    if ok:
+        print(f"Parameters written OK ({len(ok)}): {', '.join(ok)}")
+    if result.rejected:
+        print(f"Parameters REJECTED ({len(result.rejected)}): {', '.join(result.rejected)}")
+        print("  Note: rejects can be unknown keys, invalid values, "
+              "or chunks aborted after an earlier firmware error.")
+    for name, (sent, back) in result.mismatched.items():
+        print(f"{WARNING_COLOR}RELU DIFFÉRENT : {name} envoyé {sent}, relu {back}{RESET_COLOR}")
+    if result.unverified:
+        print(f"{WARNING_COLOR}Non relus après écriture ({len(result.unverified)}): "
+              f"{', '.join(result.unverified)}{RESET_COLOR}")
+    if result.written and not (result.mismatched or result.unverified):
+        print(f"Relecture : {len(result.written)} paramètre(s) conforme(s).")
+
+
+def confirm(assume_yes, question):
+    if assume_yes:
+        return True
+    try:
+        return input(question).strip().lower() in ('o', 'oui', 'y', 'yes')
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
+def run_parmw(dev, params, chunk_size, dry_run):
+    """--parmw. Only what can be written is sent: read-only values (a --parmr
+    export carries counters, PWP06...), values the tool refuses, and keys the
+    firmware does not list (PARML) are left out and reported; the rest is
+    applied, then read back."""
+    try:
+        plan = dev.plan_push(params)
+    except Exception as e:
+        print(f"PARMW ABANDONNÉ, rien envoyé : liste PARML illisible ({e})")
+        return
+    print_push_plan(plan)
+    print_parmw_preflight(dev, plan.to_send)
+    rconf_keys = [k for k in plan.to_send if k in DTECommands.RCONF_PARAM_KEYS]
+    if rconf_keys:
+        print(f"WARNING: RCONF key(s) present ({', '.join(rconf_keys)}).")
+        print(f"  KIM2 firmware validates RCONF at next boot. If VLDA4 is configured")
+        print(f"  with rf_level != {DTECommands.VLDA4_REQUIRED_DBM} dBm, it will be disabled automatically.")
+        print(f"  Run '--satvf 0' after reboot to verify the active modulation and power.")
+
+    if dry_run:
+        chunks = dev.plan_set(plan.to_send, chunk_size=chunk_size)
+        print(f"PARMW dry-run: {len(plan.to_send)} params -> {len(chunks)} chunks "
+              f"(chunk_size={chunk_size or DTECommands.PARMW_DEFAULT_CHUNK_SIZE})")
+        for i, chunk in enumerate(chunks, start=1):
+            keys = ', '.join(chunk.keys())
+            print(f"  chunk {i}/{len(chunks)} ({len(chunk)} params): {keys}")
+        return
+
+    from .migrations import FW_2026_07_UPGRADE_WARNING
+    print(f"NOTE: {FW_2026_07_UPGRADE_WARNING}")
+
+    def _on_chunk(idx, total, size):
+        print(f"  Upload chunk {idx}/{total} ({size} params)")
+    try:
+        print_push_result(dev.push(params, chunk_size=chunk_size, progress=_on_chunk))
+    except Exception as e:
+        print(f"PARMW FAILED: {e}")
+
+
 def setup_logging(enabled, level):
     if enabled:
         logging.basicConfig(format='%(asctime)s\t%(module)s\t%(levelname)s\t%(message)s', level=logging.ERROR)
@@ -347,15 +541,6 @@ def setup_logging(enabled, level):
             logging.getLogger().setLevel(logging.DEBUG)
 
 
-def confirm(assume_yes, question):
-    if assume_yes:
-        return True
-    try:
-        return input(question).strip().lower() in ('o', 'oui', 'y', 'yes')
-    except (EOFError, KeyboardInterrupt):
-        return False
-
-
 def main():
     # Show help when invoked with no arguments. argparse sets defaults that are
     # truthy (e.g. --baudrate=115200) so we cannot rely on `any(vars(args))`.
@@ -364,6 +549,11 @@ def main():
         sys.exit(2)
 
     args = parser.parse_args()
+
+    # Help texts carry characters such as ≈ and Ω that a redirected Windows
+    # stdout (cp1252) cannot encode: degrade them instead of crashing.
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(errors='replace')
 
     if args.debug:
         setup_logging(True, 'debug')
@@ -484,16 +674,19 @@ def main():
     if args.parmr:
         dev.sync()
         params = dev.get()
+        # The file gets a copy: PWP07/PWP08 stay out of it, and the raw values
+        # stay intact for the displays below.
+        export = DTEParamMap.exportable(params)
         # Format unix timestamps as DD/MM/YYYY HH:MM:SS
         TIMESTAMP_PARAMS = ('LAST_KNOWN_RTC', 'RTC_CURRENT_TIME')
         for key in TIMESTAMP_PARAMS:
-            if key in params:
-                ts = int(params[key])
+            if key in export:
+                ts = int(export[key])
                 if ts > 0:
                     dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-                    params[key] = dt.strftime('%d/%m/%Y %H:%M:%S')
+                    export[key] = dt.strftime('%d/%m/%Y %H:%M:%S')
         d = {}
-        d['PARAM'] = params
+        d['PARAM'] = export
         cfg = OrderedRawConfigParser()
         cfg.optionxform = lambda option: option
         cfg.read_dict(dictionary=d)
@@ -524,47 +717,47 @@ def main():
             except ValueError:
                 pass
 
+        print_clock_report(params)
+        try:
+            supported = dev.parml()
+        except Exception as e:
+            logging.getLogger(__name__).debug('PARML unreadable: %s', e)
+            supported = None
+        if supported is not None:
+            print_log_level(params, supported)
+            print_camera_report(params, supported)
+
     if args.poll and args.value is not None:
         dev.poll(args.poll, int(args.value))
 
     if args.parmw:
-        from .protocol.dte_commands import DTECommands
         cfg = OrderedRawConfigParser()
         cfg.optionxform = lambda option: option
         cfg.read_string(args.parmw.read())
-        params = dict(cfg['PARAM'])
-        rconf_keys = [k for k in params if k in DTECommands.RCONF_PARAM_KEYS]
-        if rconf_keys:
-            print(f"WARNING: RCONF key(s) present ({', '.join(rconf_keys)}).")
-            print(f"  KIM2 firmware validates RCONF at next boot. If VLDA4 is configured")
-            print(f"  with rf_level != {DTECommands.VLDA4_REQUIRED_DBM} dBm, it will be disabled automatically.")
-            print(f"  Run '--satvf 0' after reboot to verify the active modulation and power.")
+        run_parmw(dev, dict(cfg['PARAM']), args.parmw_chunk_size, args.parmw_dry_run)
 
-        if args.parmw_dry_run:
-            chunks = dev.plan_set(params, chunk_size=args.parmw_chunk_size)
-            print(f"PARMW dry-run: {len(params)} params -> {len(chunks)} chunks "
-                  f"(chunk_size={args.parmw_chunk_size or DTECommands.PARMW_DEFAULT_CHUNK_SIZE})")
-            for i, chunk in enumerate(chunks, start=1):
-                keys = ', '.join(chunk.keys())
-                print(f"  chunk {i}/{len(chunks)} ({len(chunk)} params): {keys}")
-        else:
-            from .migrations import FW_2026_07_UPGRADE_WARNING
-            print(f"NOTE: {FW_2026_07_UPGRADE_WARNING}")
+    if args.camera:
+        try:
+            if not print_camera_report(dev.read(CAMERA_PARAMS), dev.parml()):
+                print("Caméra : aucune sur ce build")
+        except Exception as e:
+            print(f"Camera read FAILED: {e}")
 
-            def _on_chunk(idx, total, size):
-                print(f"  Upload chunk {idx}/{total} ({size} params)")
-            try:
-                result = dev.set(params, chunk_size=args.parmw_chunk_size, progress=_on_chunk)
-                ok = [k for k, v in result.items() if v]
-                nok = [k for k, v in result.items() if not v]
-                if ok:
-                    print(f"Parameters written OK ({len(ok)}): {', '.join(ok)}")
-                if nok:
-                    print(f"Parameters REJECTED ({len(nok)}): {', '.join(nok)}")
-                    print("  Note: rejects can be unknown keys, invalid values, "
-                          "or chunks aborted after an earlier firmware error.")
-            except Exception as e:
-                print(f"PARMW FAILED: {e}")
+    if args.camtst:
+        try:
+            mode = dev.camera_mode()
+            if not camera.camtst_available(mode):
+                what = f"caméra en mode {mode}" if mode else "pas de caméra"
+                print(f"CAMTST non disponible ({what}) : builds caméra UART seulement. Rien envoyé.")
+            else:
+                print("Test caméra en cours : ~20 s, ~40 s si CAM_RESOLUTION (CAP07) "
+                      "redémarre la caméra, 185 s au plus...")
+                print_camtst_result(dev.camtst())
+        except TimeoutError:
+            print("CAMTST : aucune réponse en 185 s. Quitter le mode configuration, "
+                  "FACTW ou RSTBW pendant le test coupent la caméra sans réponse.")
+        except Exception as e:
+            print(f"CAMTST FAILED: {e}")
 
     if args.paspw:
         try:
@@ -1011,11 +1204,18 @@ def main():
             print(f"SMD DFU [{args.smddfu.upper()}] FAILED: {e}")
 
     if args.smdtst:
-        try:
-            result = dev.smdtst()
-            print(f"SMD SPI TEST: {result}")
-        except Exception as e:
-            print(f"SMD SPI TEST FAILED: {e}")
+        print("\033[41;97m*** SMDTST ÉMET : sa phase 2 est une vraie transmission Argos ***\033[0m")
+        print("  Antenne ou charge 50 Ohm, et alimentation >= 1 A requises.")
+        print("  Vérification SPI sans émission : --smddfu version "
+              "(peut bloquer ~60 s si le module ne répond pas).")
+        if not confirm(args.yes, "Lancer SMDTST (émission radio réelle) ? [o/N] : "):
+            print("SMDTST annulé, rien envoyé.")
+        else:
+            try:
+                result = dev.smdtst()
+                print(f"SMD SPI TEST: {result}")
+            except Exception as e:
+                print(f"SMD SPI TEST FAILED: {e}")
 
     if args.swsst:
         try:

@@ -2,10 +2,12 @@
 anything is sent, and the texts the operator must read.
 
 The module's bootloader erases the application at the start of the update.
-On the bootloader shipped before 2026-10-30, a power cut or a reset between
-that erase and a passing verification leaves the STM32WL on its ROM: only SWD
-brings it back. Both bootloaders report version 1.0.0, so every module is
-treated as the old one.
+On the bootloaders before v3.0.0 (all modules shipped before 2026-10-31), a
+power cut or a reset between that erase and a passing verification leaves the
+STM32WL on its ROM: only SWD brings it back, and an SPI update fails at 2 MHz.
+v3.0.0 restarts in its bootloader after such a cut and follows 2 MHz. A host
+reads that version only from inside the bootloader, so every module is treated
+as the old one.
 """
 import re
 import struct
@@ -28,7 +30,8 @@ BOOTLOADER_WARNING = (
 
 SPI_WARNING = (
     "DFU SPI : les firmwares LinkIt v4.1.0 à v4.2.0 le font à 2 MHz, et il échoue au\n"
-    "milieu de l'écriture sur le bootloader SMD (3 essais sur 3 au banc), module effacé.\n"
+    "milieu de l'écriture sur un bootloader SMD d'avant la v3.0.0 (3 essais sur 3 au\n"
+    "banc), module effacé.\n"
     "Les v4.0.6 à v4.0.9 et ceux d'après le correctif du 31/10/2026 le font à 125 kHz.\n"
     "Sur une LinkIt à 2 MHz, mettez d'abord à jour son firmware.")
 

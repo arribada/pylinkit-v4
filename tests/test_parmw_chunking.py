@@ -27,12 +27,13 @@ from pylinkit.protocol.dte_types import UINT, BOOLEAN
 
 
 def _safe_long_names(n):
-    """Pick `n` long names whose codec accepts value=0 cleanly (UINT/BOOLEAN).
-    DEPTHPILE and SAMPLINGPERIOD reject 0, so we exclude them to keep fixtures
-    simple."""
+    """Pick `n` writable long names whose codec accepts value=0 cleanly
+    (UINT/BOOLEAN). DEPTHPILE and SAMPLINGPERIOD reject 0, so we exclude them
+    to keep fixtures simple; read-only params are never sent, so they would
+    vanish from the plan."""
     out = []
     for long_name, _, codec in DTEParamMap.param_map:
-        if codec in (UINT, BOOLEAN):
+        if codec in (UINT, BOOLEAN) and not DTEParamMap.is_read_only(long_name):
             out.append(long_name)
             if len(out) == n:
                 return out
@@ -75,7 +76,7 @@ class _FakeTransport:
 # (DEPTH PILE family has 3 short keys; we mix a few families for ordering tests.)
 SMALL_VALID_PARAMS = {
     "GNSS_ENABLE":       1,
-    "BATT_SOC":          50,
+    "LB_THRESHOLD":      50,
     "ARGOS_DEPTH_PILE":  4,
     "LORA_NJM":          1,
 }
